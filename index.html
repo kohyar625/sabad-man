@@ -1,37 +1,128 @@
-<!doctype html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>سبد من</title>
-<link rel="stylesheet" href="styles.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-</head>
-<body>
-<div id="loginView" class="screen loginScreen"><div class="loginCard"><div class="brandMark">🌿</div><h1>سبد من</h1><p class="muted">Sales & Inventory</p><input id="email" type="email" placeholder="Email" autocomplete="username"><input id="password" type="password" placeholder="Password" autocomplete="current-password"><button id="loginButton" class="primary">Login</button><div id="loginStatus" class="formStatus"></div></div></div>
-<div id="appView" class="hidden">
-<header class="topbar"><div><div class="brand">سبد من <span>🌿</span></div><div id="userEmail" class="userEmail"></div></div><div class="topActions"><button id="notesButton" class="topIcon" type="button" title="دفترچه">📝</button><button id="calendarButton" class="topIcon" type="button" title="تقویم">📅</button><button id="notificationButton" class="topIcon" type="button" title="یادآورها">🔔</button><button id="logoutButton" class="ghost">Logout</button></div></header>
-<main class="wrap">
-<section class="dateBar"><div id="persianDate">—</div><div id="clock">—</div></section>
-<section class="summary twoStats"><div class="stat"><span>Today Sales</span><b id="totalSales">0 تومان</b></div><div class="stat"><span>Items</span><b id="saleCount">0</b></div></section>
-<div id="status" class="status">Starting…</div>
-<nav class="tabs"><button class="tab active" data-view="salesView">Sales</button><button class="tab" data-view="dashboardView">Dashboard</button><button class="tab" data-view="reportView">Reports</button><button class="tab" data-view="analyticsView">Analytics</button><button class="tab" data-view="productsView">Products</button></nav>
-<section id="salesView" class="view"><div class="sectionHead"><div><h2 id="title">Categories</h2><p id="subtitle">Choose a category</p></div><button id="back" class="ghost hidden">Back</button></div><div id="categories" class="grid"></div><div id="products" class="grid hidden"></div><div id="empty" class="empty hidden">No products.</div></section>
-<section id="dashboardView" class="view hidden"><div class="sectionHead"><div><h2>Dashboard</h2><p>Today</p></div><button id="dashRefresh" class="ghost">Refresh</button></div><div class="statsGrid"><div class="panel"><span>Sales</span><b id="dSales">0</b></div><div class="panel"><span>Items</span><b id="dItems">0</b></div><div class="panel"><span>Profit</span><b id="dProfit">0</b></div></div><div class="panel"><h3>Product Sales</h3><div id="productStats"></div></div><div class="panel"><h3>Stock Alerts</h3><div id="stockAlerts"></div></div></section>
-<section id="reportView" class="view hidden"><div class="sectionHead"><div><h2>Daily Report</h2></div><div class="dateTools"><button id="prevDay" class="ghost">‹</button><button id="reportDateDisplay" class="ghost datePickerButton" type="button">—</button><input id="reportDate" type="hidden"><button id="nextDay" class="ghost">›</button><button id="todayBtn" class="ghost">امروز</button></div></div><div class="statsGrid"><div class="panel"><span>Sales</span><b id="rSales">0</b></div><div class="panel"><span>Items</span><b id="rItems">0</b></div><div class="panel"><span>Profit</span><b id="rProfit">0</b></div></div><div class="panel"><h3>Products</h3><div id="reportProductStats"></div></div><div class="panel"><h3>Operations</h3><div id="reportRows"></div></div></section>
-<section id="analyticsView" class="view hidden"><div class="sectionHead"><div><h2>Analytics</h2><p>Last 30 days</p></div></div><div class="statsGrid"><div class="panel"><b id="peakHour">Peak hour: —</b></div><div class="panel"><b id="peakDay">Peak day: —</b></div><div class="panel wide"><b id="peakProduct">Top product: —</b></div></div><div class="panel"><h3>Sales by Hour</h3><canvas id="hourChart" height="240"></canvas></div><div class="panel"><h3>Sales by Weekday</h3><canvas id="dowChart" height="240"></canvas></div><div class="panel"><h3>Product Peaks</h3><div id="productPeaks"></div></div></section>
-<section id="productsView" class="view hidden"><div class="sectionHead"><div><h2>Products</h2><p>Manage products</p></div><div><button id="manageCategories" class="ghost small" type="button">Category Images</button><button id="newProduct" class="primary small" type="button">+ Product</button></div></div><div id="productCards"></div></section>
-</main>
-</div>
+🌿
+سبد من
 
-<div id="calendarModal" class="modal hidden"><div class="modalCard calendarModal"><div class="sectionHead"><div><h3>📅 تقویم سبد من</h3><p id="calendarSelected">—</p></div><button id="calendarClose" class="ghost" type="button">بستن</button></div><div class="calendarNav"><button id="calendarPrev" class="ghost" type="button">ماه قبل</button><strong id="calendarTitle">—</strong><button id="calendarNext" class="ghost" type="button">ماه بعد</button></div><div id="calendarGrid" class="calendarGrid"></div><div class="calendarActions"><button id="calendarToday" class="primary small" type="button">امروز</button></div><div class="statsGrid calendarStats"><div class="panel"><span>فروش خالص</span><b id="calendarSales">0 تومان</b></div><div class="panel"><span>تعداد فروش</span><b id="calendarItems">۰</b></div></div><div id="calendarStatus" class="formStatus"></div><div class="panel"><div class="sectionHead compact"><div><h3>📝 یادداشت‌های این روز</h3></div><button id="calendarAddNote" class="primary small" type="button">+ یادداشت</button></div><div id="calendarNotes"></div></div><div class="panel"><div class="sectionHead compact"><div><h3>🔔 یادآورهای این روز</h3></div><button id="calendarAddReminder" class="primary small" type="button">+ یادآور</button></div><div id="calendarReminders"></div></div><div class="panel"><h3>عملیات فروش روز</h3><div id="calendarRows"></div></div></div></div>
-<div id="notesModal" class="modal hidden"><div class="modalCard notesModal"><div class="sectionHead"><div><h3>📝 دفترچه یادداشت</h3><p id="notesDateText">—</p></div><button id="notesClose" class="ghost" type="button">بستن</button></div><div id="notesList" class="notesList"></div><div class="noteEditor"><input id="noteTitle" type="text" placeholder="عنوان یادداشت"><label>تاریخ یادداشت<button id="noteDateDisplay" class="ghost datePickerButton fullDateButton" type="button">انتخاب تاریخ</button><input id="noteDate" type="hidden"></label><textarea id="noteContent" placeholder="یادداشت خود را بنویسید..."></textarea><div class="actions"><button id="noteNew" class="ghost" type="button">یادداشت جدید</button><button id="noteDelete" class="danger hidden" type="button">حذف</button><button id="noteSave" class="primary" type="button">ذخیره یادداشت</button></div><div id="noteStatus" class="formStatus"></div></div></div></div>
-<div id="reminderModal" class="modal hidden"><div class="modalCard"><div class="sectionHead"><div><h3>🔔 یادآور</h3><p id="reminderDateLabel">—</p></div><button id="reminderClose" class="ghost" type="button">بستن</button></div><label>عنوان یادآور<input id="reminderTitle" type="text" placeholder="مثلاً سفارش شیر"></label><label>توضیح<textarea id="reminderContent" placeholder="جزئیات یادآور..."></textarea></label><label>تاریخ و ساعت<input id="reminderAtDisplay" type="text" readonly placeholder="انتخاب تاریخ و ساعت" onclick="openReminderPicker()"><input id="reminderAt" type="hidden"></label><div id="reminderStatus" class="formStatus"></div><div class="actions"><button id="reminderDelete" class="danger hidden" type="button">حذف</button><button id="reminderSave" class="primary" type="button">ذخیره یادآور</button></div></div></div>
-<div id="remindersListModal" class="modal hidden"><div class="modalCard"><div class="sectionHead"><div><h3>🔔 یادآورها</h3><p>یادآورهای فعال و نزدیک</p></div><button id="remindersListClose" class="ghost" type="button">بستن</button></div><div id="remindersList"></div></div></div>
-<div id="notificationsModal" class="modal hidden"><div class="modalCard"><div class="sectionHead"><div><h3>🔔 اعلان‌ها</h3><p id="notificationsSummary">—</p></div><button id="notificationsClose" class="ghost" type="button">بستن</button></div><div class="actions compactActions"><button id="notificationsDeleteAll" class="danger small" type="button">حذف همه</button></div><div id="notificationsList"></div></div></div>
-<div id="datePickerModal" class="modal hidden"><div class="modalCard calendarModal"><div class="sectionHead"><div><h3>📅 انتخاب تاریخ</h3><p id="datePickerSelected">—</p></div><button id="datePickerClose" class="ghost" type="button">بستن</button></div><div class="calendarNav"><button id="datePickerPrev" class="ghost" type="button">ماه قبل</button><strong id="datePickerTitle">—</strong><button id="datePickerNext" class="ghost" type="button">ماه بعد</button></div><div id="datePickerGrid" class="calendarGrid"></div><div class="calendarActions"><button id="datePickerToday" class="ghost small" type="button">امروز</button><button id="datePickerDone" class="primary small" type="button">انتخاب</button></div></div></div>
-<div id="reminderPickerModal" class="modal hidden"><div class="modalCard calendarModal"><div class="sectionHead"><div><h3>📅 انتخاب زمان یادآور</h3><p id="reminderPickerSelected">—</p></div><button id="reminderPickerClose" class="ghost" type="button">بستن</button></div><div class="calendarNav"><button id="reminderPickerPrev" class="ghost" type="button">ماه قبل</button><strong id="reminderPickerTitle">—</strong><button id="reminderPickerNext" class="ghost" type="button">ماه بعد</button></div><div id="reminderPickerGrid" class="calendarGrid"></div><div class="reminderTimeRow"><label>ساعت<input id="reminderPickerTime" type="time" step="60"></label><button id="reminderPickerToday" class="ghost small" type="button">امروز</button><button id="reminderPickerDone" class="primary small" type="button">تأیید</button></div></div></div>
-<div id="toast" class="toast"></div>
-<div id="categoryImageModal" class="modal hidden"><div class="modalCard categoryModal"><div class="sectionHead"><div><h3>Category Images</h3><p>Choose and save an image for each category. This image belongs only to the category.</p></div><button id="categoryImageClose" class="ghost" type="button">Close</button></div><div id="categoryCards" class="categoryManager"></div></div></div>
-<div id="productModal" class="modal hidden"><div class="modalCard large"><h3 id="productModalTitle">New Product</h3><label>Name<input id="pName"></label><label>Category<select id="pCategory"></select></label><label>Product image<input id="pImage" type="file" accept="image/*"></label><div id="imagePreview" class="imagePreview"><span>No image</span></div><div class="two"><label>Purchase price<input id="pBuy" type="number" min="0"></label><label>Sale price<input id="pSell" type="number" min="0"></label></div><div class="two"><label>Quantity<input id="pQty" type="number" min="0"></label><label>Minimum stock<input id="pMin" type="number" min="0"></label></div><div id="productFormStatus" class="formStatus"></div><div class="actions"><button id="pCancel" class="ghost">Close</button><button id="pSave" class="primary">Save</button></div></div></div>
-<script src="app.js"></script>
-</body></html>
+Sales & Inventory
+
+Login
+سبد من 🌿
+📝📅🔔Logout
+—
+—
+Today Sales0 تومان
+Items0
+Starting…
+SalesDashboardReportsAnalyticsProducts
+Categories
+
+Choose a category
+
+Back
+No products.
+Dashboard
+
+Today
+
+Refresh
+Sales0
+Items0
+Profit0
+Product Sales
+
+Stock Alerts
+
+Daily Report
+
+‹—›امروز
+Sales0
+Items0
+Profit0
+Products
+
+Operations
+
+Analytics
+
+Last 30 days
+
+Peak hour: —
+Peak day: —
+Top product: —
+Sales by Hour
+
+Sales by Weekday
+
+Product Peaks
+
+Products
+
+Manage products
+
+Category Images+ Product
+📅 تقویم سبد من
+
+—
+
+بستن
+ماه قبل—ماه بعد
+امروز
+فروش خالص0 تومان
+تعداد فروش۰
+📝 یادداشت‌های این روز
+
++ یادداشت
+🔔 یادآورهای این روز
+
++ یادآور
+عملیات فروش روز
+
+📝 دفترچه یادداشت
+
+—
+
+بستن
+تاریخ یادداشتانتخاب تاریخ
+یادداشت جدیدحذفذخیره یادداشت
+🔔 یادآور
+
+—
+
+بستن
+عنوان یادآورتوضیحتاریخ و ساعت
+حذفذخیره یادآور
+🔔 یادآورها
+
+یادآورهای فعال و نزدیک
+
+بستن
+🔔 اعلان‌ها
+
+—
+
+بستن
+حذف همه
+📅 انتخاب تاریخ
+
+—
+
+بستن
+ماه قبل—ماه بعد
+امروزانتخاب
+📅 انتخاب زمان یادآور
+
+—
+
+بستن
+ماه قبل—ماه بعد
+ساعتامروزتأیید
+Category Images
+
+Choose and save an image for each category. This image belongs only to the category.
+
+Close
+New Product
+
+NameCategoryProduct image
+No image
+Purchase priceSale price
+QuantityMinimum stock
+CloseSave
