@@ -19,7 +19,31 @@ function renderCategories(){const box=$("categories");box.innerHTML="";$("catego
 function openCategory(c){current=c;$("categories").classList.add("hidden");$("products").classList.remove("hidden");$("back").classList.remove("hidden");$("title").textContent=c.name;$("subtitle").textContent="One tap = sale · Long press = cancel";renderProducts(products.filter(p=>String(p.category_id)===String(c.id)||p.category===c.code))}
 $("back").onclick=renderCategories;
 function renderProducts(list){const box=$("products");box.innerHTML="";list.forEach(p=>{const d=document.createElement("div");d.className="card productCard";const image=p.image_url?`<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">`:`<span>${catForProduct(p)?.icon||"🛍️"}</span>`;const low=Number(p.quantity||0)<=Number(p.min_quantity||0);d.innerHTML=`<div class="pic">${image}</div><div class="name">${esc(p.name)}</div><div class="price">${fmt(p.unit_price)}</div><div class="meta ${low?"stockLow":""}">Stock: ${num(p.quantity)}${low?" · Low":""}</div>`;let timer=null,moved=false,longPressed=false;d.onpointerdown=e=>{moved=false;longPressed=false;d.setPointerCapture?.(e.pointerId);timer=setTimeout(()=>{timer=null;longPressed=true;openCancel(p)},650)};d.onpointermove=()=>{moved=true;if(timer){clearTimeout(timer);timer=null}};d.onpointerup=()=>{if(timer){clearTimeout(timer);timer=null;if(!moved&&!longPressed)registerSale(p,d)}};d.onpointercancel=()=>{if(timer)clearTimeout(timer);timer=null};box.appendChild(d)})}
-async function registerSale(p,d){if(Number(p.quantity||0)<=0){setStatus(`موجودی «${p.name}» تمام شده است.`,true);return}d.style.transform="scale(.97)";const r=await db.rpc("sale_product",{p_product_id:p.id});setTimeout(()=>d.style.transform="",120);if(r.error){setStatus("ثبت فروش انجام نشد: "+r.error.message,true);return}p.quantity=Math.max(0,Number(p.quantity||0)-1);setStatus(`فروش «${p.name}» ثبت شد ✅`);await loadToday();if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));loadDashboard()}
+async function registerSale(p,d){
+  if(Number(p.quantity||0)<=0){setStatus(`موجودی «${p.name}» تمام شده است.`,true);return}
+  d.style.transform="scale(.97)";
+  const oldQty=Number(p.quantity||0);
+
+  // Optimistic UI: show the stock decrease immediately.
+  p.quantity=Math.max(0,oldQty-1);
+  renderProducts(products.filter(x=>String(x.category_id)===String(current?.id)||x.category===current?.code));
+
+  const r=await db.rpc("sale_product",{p_product_id:p.id});
+  setTimeout(()=>d.style.transform="",120);
+
+  if(r.error){
+    // Roll back the visual change if the server rejected the sale.
+    p.quantity=oldQty;
+    if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
+    setStatus("ثبت فروش انجام نشد: "+r.error.message,true);
+    return;
+  }
+
+  setStatus(`فروش «${p.name}» ثبت شد ✅`);
+  await loadToday();
+  if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
+  loadDashboard();
+}
 async function openCancel(p){const r=await db.rpc("cancel_product",{p_product_id:p.id});if(r.error){showToast("لغو فروش انجام نشد",true);return}p.quantity=Number(p.quantity||0)+1;playCancelSound();showToast(`فروش «${p.name}» لغو شد ↩️`);await loadToday();if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));loadDashboard();if(!$('calendarModal').classList.contains("hidden"))loadCalendarSales(calendarDate)}
 async function getDay(s){const[a,b]=bounds(s);return db.from("sales").select("id,product_id,product_name,unit_price,purchase_price,quantity,total_amount,profit_amount,action,cancel_of_sale_id,created_at").gte("created_at",a).lt("created_at",b).order("created_at",{ascending:true})}
 function aggregate(rows){const map=new Map();for(const x of rows){const key=x.product_id||x.product_name,o=map.get(key)||{name:x.product_name,qty:0,cancel:0,sales:0,profit:0},q=Number(x.quantity||1),v=Number(x.total_amount||0),pr=Number(x.profit_amount??((Number(x.unit_price||0)-Number(x.purchase_price||0))*q));if(x.action==="cancel"){o.qty-=q;o.cancel+=q;o.sales-=v;o.profit-=pr}else{o.qty+=q;o.sales+=v;o.profit+=pr}map.set(key,o)}return[...map.values()].filter(x=>x.qty!==0||x.cancel!==0)}
@@ -222,17 +246,37 @@ async function loadNotificationsAndStock(){
 async function registerSaleV67(p,d){
   if(Number(p.quantity||0)<=0){setStatus(`موجودی «${p.name}» تمام شده است.`,true);return}
   d.style.transform="scale(.97)";
+  const oldQty=Number(p.quantity||0);
+  const newQty=Math.max(0,oldQty-1);
+
+  // Update the exact card immediately, before waiting for Supabase.
+  p.quantity=newQty;
+  const stockEl=d.querySelector(".meta");
+  if(stockEl){
+    const low=newQty<=Number(p.min_quantity||0);
+    stockEl.textContent=`Stock: ${num(newQty)}${low?" · Low":""}`;
+    stockEl.classList.toggle("stockLow",low);
+  }
+
   const r=await db.rpc("sale_product",{p_product_id:p.id});
   setTimeout(()=>d.style.transform="",120);
-  if(r.error){setStatus("ثبت فروش انجام نشد: "+r.error.message,true);return}
-  p.quantity=Math.max(0,Number(p.quantity||0)-1);
+  if(r.error){
+    // Roll back immediately if the RPC fails.
+    p.quantity=oldQty;
+    if(stockEl){
+      const low=oldQty<=Number(p.min_quantity||0);
+      stockEl.textContent=`Stock: ${num(oldQty)}${low?" · Low":""}`;
+      stockEl.classList.toggle("stockLow",low);
+    }
+    setStatus("ثبت فروش انجام نشد: "+r.error.message,true);
+    return;
+  }
   playSaleSound();
   showActionNotification("فروش ثبت شد",`${p.name} · فروش: ${fmt(p.unit_price)} · سود: ${fmt(Number(p.unit_price||0)-Number(p.purchase_price||0))}`,"sale");
   setStatus(`فروش «${p.name}» ثبت شد ✅`);
   await loadToday();
   if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
   await loadDashboard();
-  await loadLifetimeProductSales();
   await loadLatestSales();
   await createStockNotifications();
   await loadNotifications();
@@ -249,7 +293,6 @@ async function openCancelV67(p){
   await loadToday();
   if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
   await loadDashboard();
-  await loadLifetimeProductSales();
   await loadLatestSales();
   await loadNotifications();
   if(!$("calendarModal").classList.contains("hidden"))loadCalendarSales(calendarDate);
@@ -264,6 +307,59 @@ async function loadTodayV67(){
   await loadLatestSales();
 }
 loadToday=loadTodayV67;
+
+
+async function loadLifetimeProductSales(){
+  const el=$("lifetimeProductSales");
+  if(!el)return;
+  const r=await db.from("sales")
+    .select("product_id,product_name,unit_price,purchase_price,quantity,total_amount,profit_amount,action,created_at")
+    .order("created_at",{ascending:true});
+
+  if(r.error){
+    el.innerHTML=`<div class="empty">خطا در دریافت آمار فروش: ${esc(r.error.message)}</div>`;
+    return;
+  }
+
+  const map=new Map();
+  for(const x of r.data||[]){
+    const q=Number(x.quantity||1);
+    const sign=x.action==="cancel"?-1:1;
+    const key=x.product_id||x.product_name;
+    const o=map.get(key)||{name:x.product_name||"—",qty:0,buy:0,sell:0,profit:0};
+    o.qty+=sign*q;
+    o.buy+=sign*Number(x.purchase_price||0)*q;
+    o.sell+=sign*Number(x.unit_price||0)*q;
+    o.profit+=sign*Number(x.profit_amount??((Number(x.unit_price||0)-Number(x.purchase_price||0))*q));
+    map.set(key,o);
+  }
+
+  const rows=[...map.values()]
+    .filter(x=>x.qty!==0||x.sell!==0||x.profit!==0)
+    .sort((a,b)=>b.sell-a.sell);
+
+  if(!rows.length){
+    el.innerHTML='<div class="empty">هنوز فروشی ثبت نشده است.</div>';
+    return;
+  }
+
+  el.innerHTML=`<div class="tableWrap"><table class="table lifetimeTable">
+    <thead><tr>
+      <th>محصول</th>
+      <th>تعداد فروش</th>
+      <th>جمع قیمت خرید</th>
+      <th>جمع قیمت فروش</th>
+      <th>سود فروش</th>
+    </tr></thead>
+    <tbody>${rows.map(x=>`<tr>
+      <td>${esc(x.name)}</td>
+      <td>${num(x.qty)}</td>
+      <td>${fmt(x.buy)}</td>
+      <td>${fmt(x.sell)}</td>
+      <td class="profit">${fmt(x.profit)}</td>
+    </tr>`).join("")}</tbody>
+  </table></div>`;
+}
 
 async function loadDashboardV67(){
   await loadLifetimeProductSales();
@@ -289,27 +385,6 @@ async function loadDashboardV67(){
   await createStockNotifications();
   await loadNotifications();
 }
-
-async function loadLifetimeProductSales(){
-  const el=$("lifetimeProductSales");
-  if(!el)return;
-  const r=await db.from("sales").select("product_id,product_name,unit_price,purchase_price,quantity,total_amount,profit_amount,action,created_at").order("created_at",{ascending:true});
-  if(r.error){el.innerHTML=`<div class="empty">خطا در خواندن فروش کل: ${esc(r.error.message)}</div>`;return}
-  const rows=r.data||[], map=new Map();
-  for(const x of rows){
-    const key=x.product_id||x.product_name;
-    const q=Number(x.quantity||1), buy=Number(x.purchase_price||0), sell=Number(x.unit_price||0);
-    const amount=Number(x.total_amount??sell*q);
-    const profit=Number(x.profit_amount??((sell-buy)*q));
-    const o=map.get(key)||{name:x.product_name||"—",qty:0,buy:0,sell:0,profit:0};
-    if(x.action==="cancel"){o.qty-=q;o.buy-=buy*q;o.sell-=amount;o.profit-=profit}
-    else{o.qty+=q;o.buy+=buy*q;o.sell+=amount;o.profit+=profit}
-    map.set(key,o);
-  }
-  const out=[...map.values()].filter(x=>x.qty!==0||x.sell!==0||x.buy!==0||x.profit!==0).sort((a,b)=>b.sell-a.sell);
-  el.innerHTML=out.length?`<div class="reportTableScroll"><table class="table lifetimeTable"><thead><tr><th>محصول</th><th>تعداد فروش</th><th>جمع قیمت خرید</th><th>جمع قیمت فروش</th><th>سود فروش</th></tr></thead><tbody>${out.map(x=>`<tr><td>${esc(x.name)}</td><td>${num(x.qty)}</td><td>${fmt(x.buy)}</td><td>${fmt(x.sell)}</td><td class="profit">${fmt(x.profit)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">هنوز فروشی ثبت نشده است.</div>`;
-}
-
 loadDashboard=loadDashboardV67;
 
 async function loadReportV67(){
