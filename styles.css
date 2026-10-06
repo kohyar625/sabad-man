@@ -102,4 +102,11 @@
   .productRowActions{flex-direction:column}
 }
 
-.lifetimeTable th,.lifetimeTable td{white-space:nowrap}.lifetimeTable td:last-child{font-weight:800}@media(max-width:760px){.lifetimeTable{font-size:12px}.lifetimeTable th,.lifetimeTable td{padding:9px 7px}}
+.lifetimeTable th,.lifetimeTable td{white-space:nowrap}
+.lifetimeTable td:last-child{font-weight:800}
+@media(max-width:760px){
+  .lifetimeTable{font-size:12px}
+  .lifetimeTable th,.lifetimeTable td{padding:9px 7px}
+}
+
+.monthlyTableWrap{max-height:620px;overflow:auto}.monthlySalesTable th:first-child,.monthlySalesTable td:first-child{width:72px;text-align:center}.monthlySalesTable td:last-child,.monthlySalesTable th:last-child{text-align:left;direction:ltr}.monthlySalesTable tr:nth-child(even) td{background:rgba(255,255,255,.035)}
