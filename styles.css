@@ -7,3 +7,45 @@
 /* Version 6.3 calendar notes/reminders */
 .compact{margin:0 0 10px}.calendarItem{border:1px solid #dce7c9;border-radius:14px;background:#fbfdf7;padding:11px;margin:7px 0}.calendarItem strong{display:block;color:var(--dark)}.calendarItem small{display:block;color:var(--muted);margin-top:4px}.calendarItem p{margin:7px 0;line-height:1.8}.toast{position:fixed;top:8px;left:50%;transform:translate(-50%,-130%);opacity:0;z-index:100;background:var(--dark);color:#fff;border-radius:14px;padding:10px 18px;box-shadow:0 10px 30px rgba(0,0,0,.2);pointer-events:none;font-weight:800;white-space:nowrap}.toast.show{animation:toastInOut 1s ease forwards}.toast.error{background:#a83f3f}@keyframes toastInOut{0%{transform:translate(-50%,-130%);opacity:0}18%{transform:translate(-50%,0);opacity:1}72%{transform:translate(-50%,0);opacity:1}100%{transform:translate(-50%,-130%);opacity:0}}@media(max-width:600px){.twoStats{grid-template-columns:1fr 1fr}.pic{height:155px}}@media(max-width:430px){.pic{height:150px}}
 .datePickerButton{min-width:150px;text-align:center}.fullDateButton{width:100%;text-align:right}.compactActions{margin:0 0 10px;justify-content:flex-start}.notificationItem{border:1px solid #dce7c9;border-radius:14px;background:#fbfdf7;padding:11px;margin:7px 0;display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.notificationItem.unread{background:#f5f9ea;border-right:4px solid #a44747}.notificationMain{flex:1}.notificationMain strong{display:block;color:var(--dark)}.notificationMain small{display:block;color:var(--muted);margin-top:4px}.notificationMain p{margin:7px 0;line-height:1.7}.notificationActions{margin:0;flex-shrink:0}@media(max-width:600px){.notificationItem{display:block}.notificationActions{margin-top:8px;justify-content:flex-start}.datePickerButton{min-width:130px}}
+
+
+/* ===== v6.7 UI ===== */
+.sectionActions{display:flex;gap:8px;align-items:center}
+.latestSalesPanel{margin-top:14px}
+.latestSaleItem{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #e4ecd5}
+.latestSaleItem:last-child{border-bottom:0}
+.latestSaleMain{display:flex;flex-direction:column;gap:4px;min-width:130px}
+.latestSaleMain strong{font-size:14px}
+.latestSaleMain small{color:var(--muted)}
+.latestSaleValues{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px;font-size:12px;color:var(--muted)}
+.latestSaleValues b{color:var(--dark)}
+.latestSaleItem.cancelled{opacity:.78;background:#fff8f8}
+.negative{color:var(--danger)!important}
+.dashboardStats{grid-template-columns:repeat(5,minmax(0,1fr))}
+.productSalesList{display:flex;flex-direction:column;gap:8px}
+.productSalesLine{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #e4ecd5}
+.productSalesLine:last-child{border-bottom:0}
+.productSalesLine span{font-weight:700}
+.productSalesLine b{font-size:12px;color:var(--muted)}
+.reportProductsPanel{margin-top:12px}
+.cancelRow{opacity:.78;background:#fff8f8}
+.productRowActions,.categoryManageActions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.categoryNameInput{width:100%;border:1px solid #d6e2bf;border-radius:12px;padding:10px;background:#fbfdf8;color:var(--text);font:inherit;font-weight:700}
+.actionNotification{position:fixed;z-index:9999;top:-130px;left:50%;transform:translateX(-50%);width:min(92vw,480px);padding:14px 18px;border-radius:16px;background:#fff;box-shadow:0 12px 32px rgba(40,60,20,.20);border:1px solid #dce9bd;display:flex;flex-direction:column;gap:4px;text-align:center;opacity:0;pointer-events:none}
+.actionNotification strong{font-size:16px;color:var(--dark)}
+.actionNotification span{font-size:13px;color:var(--muted)}
+.actionNotification.show{animation:actionDrop 1.5s ease forwards}
+.actionNotification.cancel{border-color:#eccaca}
+.actionNotification.cancel strong{color:var(--danger)}
+@keyframes actionDrop{
+  0%{top:-120px;opacity:0}
+  15%{top:18px;opacity:1}
+  70%{top:18px;opacity:1}
+  100%{top:-120px;opacity:0}
+}
+@media(max-width:900px){.dashboardStats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){
+  .latestSaleItem{flex-direction:column}
+  .latestSaleValues{justify-content:flex-start}
+  .productSalesLine{grid-template-columns:1fr auto;}.productSalesLine b:last-child{grid-column:2}
+}
