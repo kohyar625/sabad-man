@@ -232,6 +232,7 @@ async function registerSaleV67(p,d){
   await loadToday();
   if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
   await loadDashboard();
+  await loadLifetimeProductSales();
   await loadLatestSales();
   await createStockNotifications();
   await loadNotifications();
@@ -248,6 +249,7 @@ async function openCancelV67(p){
   await loadToday();
   if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
   await loadDashboard();
+  await loadLifetimeProductSales();
   await loadLatestSales();
   await loadNotifications();
   if(!$("calendarModal").classList.contains("hidden"))loadCalendarSales(calendarDate);
@@ -264,6 +266,7 @@ async function loadTodayV67(){
 loadToday=loadTodayV67;
 
 async function loadDashboardV67(){
+  await loadLifetimeProductSales();
   const todayRows=await getDay(today());
   if(todayRows.error)return;
   const s=summary(todayRows.data||[]);
@@ -286,6 +289,27 @@ async function loadDashboardV67(){
   await createStockNotifications();
   await loadNotifications();
 }
+
+async function loadLifetimeProductSales(){
+  const el=$("lifetimeProductSales");
+  if(!el)return;
+  const r=await db.from("sales").select("product_id,product_name,unit_price,purchase_price,quantity,total_amount,profit_amount,action,created_at").order("created_at",{ascending:true});
+  if(r.error){el.innerHTML=`<div class="empty">خطا در خواندن فروش کل: ${esc(r.error.message)}</div>`;return}
+  const rows=r.data||[], map=new Map();
+  for(const x of rows){
+    const key=x.product_id||x.product_name;
+    const q=Number(x.quantity||1), buy=Number(x.purchase_price||0), sell=Number(x.unit_price||0);
+    const amount=Number(x.total_amount??sell*q);
+    const profit=Number(x.profit_amount??((sell-buy)*q));
+    const o=map.get(key)||{name:x.product_name||"—",qty:0,buy:0,sell:0,profit:0};
+    if(x.action==="cancel"){o.qty-=q;o.buy-=buy*q;o.sell-=amount;o.profit-=profit}
+    else{o.qty+=q;o.buy+=buy*q;o.sell+=amount;o.profit+=profit}
+    map.set(key,o);
+  }
+  const out=[...map.values()].filter(x=>x.qty!==0||x.sell!==0||x.buy!==0||x.profit!==0).sort((a,b)=>b.sell-a.sell);
+  el.innerHTML=out.length?`<div class="reportTableScroll"><table class="table lifetimeTable"><thead><tr><th>محصول</th><th>تعداد فروش</th><th>جمع قیمت خرید</th><th>جمع قیمت فروش</th><th>سود فروش</th></tr></thead><tbody>${out.map(x=>`<tr><td>${esc(x.name)}</td><td>${num(x.qty)}</td><td>${fmt(x.buy)}</td><td>${fmt(x.sell)}</td><td class="profit">${fmt(x.profit)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">هنوز فروشی ثبت نشده است.</div>`;
+}
+
 loadDashboard=loadDashboardV67;
 
 async function loadReportV67(){
@@ -416,3 +440,146 @@ setTimeout(async()=>{
     if(!$("reportView").classList.contains("hidden"))await loadReport();
   }
 },800);
+
+
+/* ===== v6.7.1: instant product search + grouped Products + notification order ===== */
+function searchNormalize(value){
+  return String(value||"")
+    .toLocaleLowerCase("fa-IR")
+    .replace(/ي/g,"ی").replace(/ى/g,"ی").replace(/ك/g,"ک")
+    .replace(/ۀ/g,"ه").replace(/ة/g,"ه")
+    .replace(/\u200c/g,"").replace(/\s+/g," ")
+    .trim();
+}
+
+function renderSalesSearchResults(query){
+  const q=searchNormalize(query);
+  const box=$("products"), cats=$("categories"), empty=$("empty");
+  if(!q){
+    cats.classList.remove("hidden");
+    box.classList.add("hidden");
+    empty.classList.add("hidden");
+    $("title").textContent="Categories";
+    $("subtitle").textContent="Choose a category";
+    $("back").classList.add("hidden");
+    return;
+  }
+  current=null;
+  cats.classList.add("hidden");
+  box.classList.remove("hidden");
+  $("back").classList.add("hidden");
+  $("title").textContent="Search results";
+  $("subtitle").textContent="محصولات مطابق جستجو";
+  const matches=products.filter(p=>searchNormalize(p.name).includes(q));
+  empty.classList.toggle("hidden",matches.length>0);
+  if(!matches.length){box.innerHTML="";return;}
+  renderProducts(matches);
+}
+
+function setupSalesProductSearch(){
+  const input=$("salesProductSearch");
+  if(!input)return;
+  input.addEventListener("input",()=>renderSalesSearchResults(input.value));
+}
+setupSalesProductSearch();
+
+const oldOpenCategoryV671=openCategory;
+openCategory=function(c){
+  const input=$("salesProductSearch");
+  if(input)input.value="";
+  oldOpenCategoryV671(c);
+};
+
+const oldBackSalesV671=$("back")?.onclick;
+if($("back"))$("back").addEventListener("click",()=>{if($("salesProductSearch"))$("salesProductSearch").value=""});
+
+function groupedProductManagerRender(){
+  const box=$("productCards"), input=$("productsSearch");
+  if(!box)return;
+  const q=searchNormalize(input?.value||"");
+  const filtered=products.filter(p=>!q||searchNormalize(p.name).includes(q));
+  if(!filtered.length){
+    box.innerHTML=`<div class="empty">${q?"محصولی با این نام پیدا نشد.":"هنوز محصولی ثبت نشده است."}</div>`;
+    return;
+  }
+  const groups=[];
+  categories.forEach(c=>{
+    const list=filtered.filter(p=>String(p.category_id)===String(c.id)||p.category===c.code);
+    if(list.length)groups.push({cat:c,items:list});
+  });
+  const assigned=new Set(groups.flatMap(g=>g.items.map(p=>String(p.id))));
+  const other=filtered.filter(p=>!assigned.has(String(p.id)));
+  if(other.length)groups.push({cat:{id:"__other",name:"Other",icon:"🛍️"},items:other});
+
+  box.innerHTML=groups.map(g=>`
+    <div class="productManagerGroup">
+      <div class="productManagerGroupTitle"><span>${esc(g.cat.icon||"🛍️")}</span><strong>${esc(g.cat.name||"Other")}</strong><small>${num(g.items.length)} محصول</small></div>
+      <div class="productManagerGroupItems">
+        ${g.items.map(p=>{
+          const low=Number(p.quantity||0)<=Number(p.min_quantity||0),c=catForProduct(p);
+          const im=p.image_url?`<img src="${esc(p.image_url)}" alt="">`:c?.icon||"🛍️";
+          return `<div class="productRow">
+            <div class="productInfo"><div class="thumb">${im}</div><div>
+              <h3>${esc(p.name)}</h3>
+              <small>خرید: ${fmt(p.purchase_price)} · فروش: ${fmt(p.unit_price)}</small><br>
+              <small class="${low?"stockLow":""}">موجودی: ${num(p.quantity)} · حداقل: ${num(p.min_quantity)}</small>
+            </div></div>
+            <div class="productRowActions"><button class="ghost editProduct" data-id="${esc(p.id)}">Edit</button><button class="danger small deleteProduct" data-id="${esc(p.id)}">Delete</button></div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>`).join("");
+
+  box.querySelectorAll(".editProduct").forEach(b=>b.onclick=()=>openProduct(b.dataset.id));
+  box.querySelectorAll(".deleteProduct").forEach(b=>b.onclick=()=>deleteProductV67(b.dataset.id));
+}
+
+renderProductManager=groupedProductManagerRender;
+
+if($("productsSearch")){
+  $("productsSearch").addEventListener("input",groupedProductManagerRender);
+}
+
+const oldLoadV671=load;
+load=async function(){
+  await oldLoadV671();
+  groupedProductManagerRender();
+};
+
+function renderNotificationsV671(){
+  const box=$("notificationsList");
+  if(!box)return;
+  const sorted=[...notifications].sort((a,b)=>{
+    const au=!a.read_at, bu=!b.read_at;
+    if(au!==bu)return au?-1:1;
+    return new Date(b.created_at)-new Date(a.created_at);
+  });
+  const unread=sorted.filter(x=>!x.read_at).length;
+  $("notificationsSummary").textContent=unread?`${num(unread)} اعلان خوانده نشده`:"همه اعلان‌ها خوانده شده‌اند";
+  box.innerHTML=sorted.length?sorted.map(n=>`
+    <div class="notificationItem ${n.read_at?'read':'unread'}">
+      <div class="notificationMain">
+        <strong>${n.read_at?'':'🔴 '}${esc(n.title)}</strong>
+        <small>${notificationDate(n.created_at)}</small>
+        <p>${esc(n.content||"")}</p>
+      </div>
+      <div class="actions notificationActions">
+        <button class="ghost small" data-not-read="${esc(n.id)}">${n.read_at?"خوانده شد":"خواندم"}</button>
+        <button class="danger small" data-not-del="${esc(n.id)}">حذف</button>
+      </div>
+    </div>`).join(""):'<div class="empty">اعلانی وجود ندارد.</div>';
+
+  box.querySelectorAll("[data-not-read]").forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.notRead,n=notifications.find(x=>x.id===id);
+    if(!n||n.read_at)return;
+    const r=await db.from("notifications").update({read_at:new Date().toISOString()}).eq("id",id);
+    if(!r.error)await loadNotifications();
+  });
+  box.querySelectorAll("[data-not-del]").forEach(b=>b.onclick=async()=>{
+    const r=await db.from("notifications").delete().eq("id",b.dataset.notDel);
+    if(!r.error)await loadNotifications();
+  });
+  updateNotificationBadge();
+}
+renderNotifications=renderNotificationsV671;
+renderNotifications();
