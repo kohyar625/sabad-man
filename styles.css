@@ -49,3 +49,57 @@
   .latestSaleValues{justify-content:flex-start}
   .productSalesLine{grid-template-columns:1fr auto;}.productSalesLine b:last-child{grid-column:2}
 }
+
+
+/* ===== v6.7.1 search & grouped product manager ===== */
+.searchBar{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:#fff;
+  border:1px solid #d9e4c7;
+  border-radius:16px;
+  padding:8px 12px;
+  margin:0 0 14px;
+  box-shadow:var(--shadow);
+}
+.searchBar span{font-size:18px}
+.searchBar input{
+  width:100%;
+  border:0;
+  outline:0;
+  background:transparent;
+  color:var(--text);
+  font:inherit;
+  min-height:32px;
+}
+.searchBar input::placeholder{color:#9aa58e}
+.productManagerGroup{
+  margin:0 0 18px;
+}
+.productManagerGroupTitle{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 12px;
+  margin-bottom:8px;
+  background:var(--p3);
+  border:1px solid #d9e4c7;
+  border-radius:14px;
+}
+.productManagerGroupTitle strong{color:var(--dark)}
+.productManagerGroupTitle small{
+  margin-right:auto;
+  color:var(--muted);
+  font-size:12px;
+}
+.productManagerGroupItems{display:flex;flex-direction:column}
+.productsSearchBar{margin-bottom:16px}
+@media(max-width:700px){
+  .productRow{align-items:flex-start}
+  .productInfo{min-width:0}
+  .productInfo>div:last-child{min-width:0}
+  .productRowActions{flex-direction:column}
+}
+
+.lifetimeTable th,.lifetimeTable td{white-space:nowrap}.lifetimeTable td:last-child{font-weight:800}@media(max-width:760px){.lifetimeTable{font-size:12px}.lifetimeTable th,.lifetimeTable td{padding:9px 7px}}
