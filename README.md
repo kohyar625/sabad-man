@@ -1,16 +1,16 @@
-# Sabadman v5.5
+سبد من — v6.8 Final
 
-## v5.5 fixes
-- Category images are managed in a dedicated Category Images window, completely separate from the New Product form.
-- Choosing a category image updates only `categories.image_url` for that category.
-- Product images are stored only through the Product image field.
-- The 12 fixed categories remain available for product selection.
-- Category cards on the Sales page use the saved category image.
-- Product cards inside a category continue to use the product's own image.
-- Pistachio-green theme retained.
+این بسته برای نسخه فعلی v6.7.1 ریپوی kohyar625/sabad-man ساخته شده است.
 
-## Files
-- index.html
-- app.js
-- styles.css
-- supabase_v5_5_migration.sql
+روش اجرا:
+- app.js موجود v6.7.1 را دست‌نخورده نگه دارید.
+- index.html و styles.css و v6.8-integrated.js را جایگزین کنید.
+- Migration SQL را در Supabase اجرا کنید.
+- index.html در زمان اجرا app.js موجود و لایه v6.8 را در یک classic script scope اجرا می‌کند؛ بنابراین مشکل دسترسی patch به متغیرهای lexical و Login ناشی از patch جداگانه ایجاد نمی‌شود.
+
+تغییرات v6.8:
+1) قیمت خرید/فروش/سود اعلان‌های فروش و لغو از رکورد تاریخی sales خوانده می‌شود.
+2) Sales by Monthly روزهای ماه جاری را به‌صورت ستون‌های روزانه نمایش می‌دهد.
+3) نمودارها محور عمودی عددی و واحد دارند.
+4) ترتیب محصولات هر دسته با ▲/▼ ذخیره و بین کاربران مشترک است.
+5) محصول جدید در انتهای دسته قرار می‌گیرد.
