@@ -1,31 +1,35 @@
-begin;
+-- Sabad Man v6.6: persistent shared notifications
+create table if not exists public.notifications (
+    id uuid primary key default gen_random_uuid(),
+    title text not null default 'اعلان',
+    content text not null default '',
+    kind text not null default 'general',
+    reference_id text,
+    read_at timestamptz,
+    created_at timestamptz not null default now()
+);
 
-alter table public.products
-  add column if not exists sort_order integer;
+alter table public.notifications enable row level security;
 
-create index if not exists products_category_sort_order_idx
-  on public.products(category_id, sort_order);
+drop policy if exists "authenticated users can read notifications" on public.notifications;
+drop policy if exists "authenticated users can insert notifications" on public.notifications;
+drop policy if exists "authenticated users can update notifications" on public.notifications;
+drop policy if exists "authenticated users can delete notifications" on public.notifications;
 
--- Initialize a stable order inside every category.
-with ranked as (
-  select id,
-         row_number() over (
-           partition by category_id
-           order by
-             case when sort_order is null then 1 else 0 end,
-             sort_order,
-             created_at,
-             id
-         )::integer as rn
-  from public.products
-)
-update public.products p
-set sort_order=r.rn
-from ranked r
-where p.id=r.id
-  and (p.sort_order is distinct from r.rn);
+create policy "authenticated users can read notifications"
+on public.notifications for select to authenticated using (true);
 
-grant select,insert,update,delete on public.products to authenticated;
+create policy "authenticated users can insert notifications"
+on public.notifications for insert to authenticated with check (true);
 
-notify pgrst,'reload schema';
-commit;
+create policy "authenticated users can update notifications"
+on public.notifications for update to authenticated using (true) with check (true);
+
+create policy "authenticated users can delete notifications"
+on public.notifications for delete to authenticated using (true);
+
+create unique index if not exists notifications_kind_reference_uidx
+on public.notifications(kind, reference_id)
+where reference_id is not null;
+
+notify pgrst, 'reload schema';
