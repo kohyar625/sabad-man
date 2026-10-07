@@ -1,639 +1,112 @@
-const SUPABASE_URL="https://qgmudtsqehzewhrjasib.supabase.co";
-const SUPABASE_ANON_KEY="sb_publishable_3NGkyJlSoCcFguJswz8rCg_nQ-QA9Uu";
-const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-const $=id=>document.getElementById(id),TZ="Asia/Tehran";
-let products=[],categories=[],current=null,pending=null,editingProduct=null,loading=false,selectedImageData=null;
-let notes=[],editingNote=null,calendarDate=new Date(),reminders=[],editingReminder=null,toastTimer=null;
-const days=["یکشنبه","دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه","جمعه","شنبه"];
-const fallbackCats=[{code:"tea",name:"Tea",image_url:null,sort_order:1,icon:"🍵"},{code:"coffee",name:"Coffee",image_url:null,sort_order:2,icon:"☕"},{code:"cold_drink",name:"Cold Drinks",image_url:null,sort_order:3,icon:"🥤"},{code:"juice_milk",name:"Juice & Milk",image_url:null,sort_order:4,icon:"🧃"},{code:"chocolate_snacks",name:"Chocolate & Snacks",image_url:null,sort_order:5,icon:"🍫"},{code:"biscuits_cake",name:"Biscuits & Cake",image_url:null,sort_order:6,icon:"🍪"},{code:"cig",name:"Cig",image_url:null,sort_order:7,icon:"🚬"},{code:"ice_cream",name:"Ice Cream",image_url:null,sort_order:8,icon:"🍦"},{code:"water",name:"Mineral Water",image_url:null,sort_order:9,icon:"💧"},{code:"ready_food",name:"Ready Food",image_url:null,sort_order:10,icon:"🍔"},{code:"gum",name:"Gum",image_url:null,sort_order:11,icon:"🟢"},{code:"other",name:"Other",image_url:null,sort_order:12,icon:"🛍️"}];
-const fmt=n=>Number(n||0).toLocaleString("fa-IR")+" تومان",num=n=>Number(n||0).toLocaleString("fa-IR"),esc=v=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
-const today=()=>new Intl.DateTimeFormat("en-CA",{timeZone:TZ}).format(new Date());
-function bounds(s){let a=new Date(s+"T00:00:00+03:30"),b=new Date(a);b.setDate(b.getDate()+1);return[a.toISOString(),b.toISOString()]}
-function setStatus(x,error=false){const el=$("status");if(el){el.textContent=x;el.style.color=error?"#c44":"#5f850d"}}
-function catForProduct(p){return categories.find(c=>String(c.id)===String(p.category_id))||categories.find(c=>c.code===p.category)||categories.find(c=>c.code==="other")||fallbackCats.at(-1)}
-function catImage(c){return c?.image_url?`<img src="${esc(c.image_url)}" alt="${esc(c.name)}" loading="lazy">`:`<span>${c?.icon||"🛍️"}</span>`}
-function switchView(id){document.querySelectorAll(".view").forEach(v=>v.classList.toggle("hidden",v.id!==id));document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===id));if(id==="dashboardView")loadDashboard();if(id==="reportView")loadReport();if(id==="analyticsView")loadAnalytics();if(id==="productsView"){renderProductManager();renderCategoryManager()}}
-document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
-async function load(){if(loading)return;loading=true;setStatus("در حال خواندن محصولات…");const[pr,cr]=await Promise.all([db.from("products").select("id,name,image_url,unit_price,purchase_price,quantity,min_quantity,created_at,updated_at,category_id").order("created_at",{ascending:true}),db.from("categories").select("id,code,name,image_url,sort_order,created_at,updated_at").order("sort_order",{ascending:true})]);loading=false;if(pr.error){setStatus("خطا در خواندن محصولات: "+pr.error.message,true);return}if(cr.error){setStatus("خطا در خواندن دسته‌ها: "+cr.error.message,true);return}products=pr.data||[];categories=cr.data?.length?cr.data:fallbackCats;renderCategories();renderProductManager();renderCategoryManager();await loadToday();setStatus("آماده است ✅")}
-function renderCategories(){const box=$("categories");box.innerHTML="";$("categories").classList.remove("hidden");$("products").classList.add("hidden");$("back").classList.add("hidden");const list=categories.map(c=>({...c,count:products.filter(p=>String(p.category_id)===String(c.id)||p.category===c.code).length}));$("empty").classList.toggle("hidden",list.length>0);list.forEach(c=>{const d=document.createElement("div");d.className="card";d.innerHTML=`<div class="pic">${catImage(c)}</div><div class="name">${esc(c.name)}</div><div class="meta">${num(c.count)} product${c.count===1?"":"s"}</div>`;d.onclick=()=>openCategory(c);box.appendChild(d)})}
-function openCategory(c){current=c;$("categories").classList.add("hidden");$("products").classList.remove("hidden");$("back").classList.remove("hidden");$("title").textContent=c.name;$("subtitle").textContent="One tap = sale · Long press = cancel";renderProducts(products.filter(p=>String(p.category_id)===String(c.id)||p.category===c.code))}
-$("back").onclick=renderCategories;
-function renderProducts(list){const box=$("products");box.innerHTML="";list.forEach(p=>{const d=document.createElement("div");d.className="card productCard";const image=p.image_url?`<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">`:`<span>${catForProduct(p)?.icon||"🛍️"}</span>`;const low=Number(p.quantity||0)<=Number(p.min_quantity||0);d.innerHTML=`<div class="pic">${image}</div><div class="name">${esc(p.name)}</div><div class="price">${fmt(p.unit_price)}</div><div class="meta ${low?"stockLow":""}">Stock: ${num(p.quantity)}${low?" · Low":""}</div>`;let timer=null,moved=false,longPressed=false;d.onpointerdown=e=>{moved=false;longPressed=false;d.setPointerCapture?.(e.pointerId);timer=setTimeout(()=>{timer=null;longPressed=true;openCancel(p)},650)};d.onpointermove=()=>{moved=true;if(timer){clearTimeout(timer);timer=null}};d.onpointerup=()=>{if(timer){clearTimeout(timer);timer=null;if(!moved&&!longPressed)registerSale(p,d)}};d.onpointercancel=()=>{if(timer)clearTimeout(timer);timer=null};box.appendChild(d)})}
-async function registerSale(p,d){
-  if(Number(p.quantity||0)<=0){setStatus(`موجودی «${p.name}» تمام شده است.`,true);return}
-  d.style.transform="scale(.97)";
-  const oldQty=Number(p.quantity||0);
+:root{--p:#9fbd62;--p2:#dce9bd;--p3:#eef5df;--dark:#365019;--text:#26301d;--muted:#69755d;--white:#fff;--danger:#c44d4d;--shadow:0 8px 24px rgba(70,95,35,.10)}*{box-sizing:border-box}body{margin:0;font-family:Tahoma,Arial,sans-serif;background:linear-gradient(135deg,#f7faef,#e8f1d4);color:var(--text)}button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}.hidden{display:none!important}.screen{min-height:100vh;display:grid;place-items:center;padding:20px}.loginCard{width:min(420px,100%);background:#fff;padding:34px;border-radius:28px;box-shadow:var(--shadow);text-align:center}.brandMark{font-size:48px}.loginCard h1{margin:8px 0;color:var(--dark)}input,select,textarea{width:100%;border:1px solid #d3ddc2;background:#fbfdf7;border-radius:12px;padding:13px;margin:6px 0 10px;outline:none}textarea{min-height:150px;resize:vertical;line-height:1.9}input:focus,select:focus,textarea:focus{border-color:var(--p);box-shadow:0 0 0 3px var(--p3)}.primary,.danger,.ghost{border-radius:12px;padding:11px 16px;font-weight:700}.primary{background:var(--dark);color:#fff}.primary:hover{background:#4b6b25}.danger{background:var(--danger);color:#fff}.ghost{background:var(--p3);color:var(--dark)}.small{padding:8px 12px}.topbar{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-bottom:1px solid #dce7c9;padding:14px max(16px,calc((100% - 1200px)/2));display:flex;justify-content:space-between;align-items:center;gap:12px}.brand{font-size:22px;font-weight:900;color:var(--dark)}.userEmail{font-size:11px;color:var(--muted);margin-top:3px}.topActions{display:flex;align-items:center;gap:7px}.topIcon{width:42px;height:42px;padding:0;border-radius:13px;background:var(--p3);font-size:21px;display:grid;place-items:center}.topIcon:not(:disabled):active{transform:scale(.95)}.topIcon.hasBadge{position:relative}.topIcon.hasBadge:after{content:attr(data-count);position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;padding:0 4px;border-radius:10px;background:#a44747;color:#fff;font-size:10px;font-weight:900;display:grid;place-items:center;border:2px solid #fff}.disabledIcon{opacity:.42;cursor:not-allowed}.dateBar{display:flex;justify-content:center;align-items:center;gap:18px;background:rgba(255,255,255,.7);border:1px solid #dce7c9;border-radius:15px;padding:10px 14px;margin-bottom:12px;color:var(--dark);font-weight:800}.dateBar #clock{font-variant-numeric:tabular-nums}.wrap{max-width:1200px;margin:auto;padding:18px}.summary,.statsGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.twoStats{grid-template-columns:repeat(2,1fr)}.stat,.panel{background:#fff;border:1px solid #dce7c9;border-radius:18px;box-shadow:var(--shadow)}.stat{padding:14px}.stat span,.panel span{display:block;color:var(--muted);font-size:12px}.stat b,.panel>b{display:block;margin-top:7px;color:var(--dark)}.status{text-align:center;margin:10px 0;padding:8px;color:#5f850d;font-size:13px}.tabs{display:flex;gap:8px;overflow:auto;padding:4px 0 14px}.tab{white-space:nowrap;background:#dfeac6;color:#53663b;padding:10px 15px;border-radius:14px;font-weight:700}.tab.active{background:var(--dark);color:#fff}.sectionHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 16px}.sectionHead h2{margin:0;color:var(--dark)}.sectionHead p{margin:4px 0;color:var(--muted);font-size:12px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.card{background:#fff;border:1px solid #d9e4c7;border-radius:20px;padding:12px;text-align:center;box-shadow:var(--shadow);transition:.15s;user-select:none;touch-action:manipulation;-webkit-user-select:none;-webkit-touch-callout:none}.card:active{transform:scale(.98)}.pic{height:180px;border-radius:15px;background:var(--p3);display:grid;place-items:center;overflow:hidden;font-size:54px}.pic img{width:100%;height:100%;object-fit:cover}.name{font-weight:800;margin:10px 0 4px}.price{font-weight:900;color:var(--dark)}.meta{font-size:12px;color:var(--muted);margin-top:5px}.stockLow{color:#b44747;font-weight:700}.empty{background:#fff;border:1px dashed #b9c99a;border-radius:18px;padding:28px;text-align:center;color:var(--muted)}.panel{padding:16px;margin-bottom:14px}.panel h3{margin-top:0;color:var(--dark)}.statsGrid{margin-bottom:14px}.statsGrid .panel{margin:0}.wide{grid-column:span 2}.table{width:100%;border-collapse:collapse}.table th,.table td{border-bottom:1px solid #e6ecd9;padding:10px;text-align:center}.table th{background:var(--p3);color:var(--dark)}.profit{color:#557c16;font-weight:800}.alert{padding:11px;background:#fff3d7;border-radius:12px;margin:6px 0;color:#77571b}.ok{padding:11px;background:var(--p3);border-radius:12px;color:var(--dark)}.dateTools{display:flex;align-items:center;gap:5px}.dateTools input{margin:0;width:auto}.productRow{background:#fff;border:1px solid #dce7c9;border-radius:18px;padding:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;box-shadow:var(--shadow)}.productInfo{display:flex;align-items:center;gap:12px}.thumb{width:68px;height:68px;border-radius:14px;overflow:hidden;background:var(--p3);display:grid;place-items:center;font-size:30px}.thumb img{width:100%;height:100%;object-fit:cover}.productRow h3{margin:0 0 5px}.productRow small{color:var(--muted)}.imagePreview{height:140px;border-radius:15px;background:var(--p3);display:grid;place-items:center;overflow:hidden;margin:3px 0 12px;color:var(--muted)}.imagePreview img{width:100%;height:100%;object-fit:contain}.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.modal{position:fixed;inset:0;background:rgba(28,42,17,.48);display:grid;place-items:center;padding:18px;z-index:20}.modalCard{width:min(420px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:24px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.2)}.modalCard.large{width:min(600px,100%)}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.formStatus{min-height:20px;color:#a14c4c;font-size:12px;margin-top:4px}.categoryManager{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.catManage{border:1px solid #dce7c9;border-radius:15px;padding:10px;background:#fbfdf7}.catManage strong{display:block;color:var(--dark);margin-bottom:7px}.catImg{height:90px;background:var(--p3);border-radius:10px;overflow:hidden;display:grid;place-items:center;margin-bottom:6px}.catImg img{width:100%;height:100%;object-fit:cover}canvas{width:100%;max-width:100%;background:#fbfdf7;border-radius:12px}.fileButton{display:block;width:100%;background:var(--p3);color:var(--dark);border:1px solid #d3ddc2;border-radius:10px;padding:9px;text-align:center;font-weight:700;margin:6px 0;cursor:pointer}.fileButton input{display:none}.categoryModal{width:min(900px,100%)}.catManage .primary{width:100%;margin-top:2px}.reportTableScroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}.reportTableScroll .table{min-width:980px}.notesModal{width:min(760px,100%)}.notesList{display:flex;gap:8px;overflow-x:auto;padding:4px 0 12px;margin-bottom:10px}.noteItem{min-width:170px;max-width:220px;text-align:right;background:var(--p3);border:1px solid #d3ddc2;border-radius:14px;padding:10px;cursor:pointer}.noteItem.active{border-color:var(--dark);box-shadow:0 0 0 2px #dce9bd}.noteItem strong{display:block;color:var(--dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.noteItem small{display:block;color:var(--muted);margin-top:5px;line-height:1.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.noteEditor{border-top:1px solid #e1e8d6;padding-top:10px}.noteEditor input{font-weight:700}.notesEmpty{width:100%;padding:18px;text-align:center;color:var(--muted);background:#fbfdf7;border:1px dashed #c4d2aa;border-radius:14px}
+@media(max-width:760px){.wrap{padding:12px}.summary,.statsGrid{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:repeat(3,1fr);gap:8px}.pic{height:105px}.name{font-size:13px}.price{font-size:12px}.meta{font-size:10px}.categoryManager{grid-template-columns:repeat(2,1fr)}.topbar{padding:12px}.sectionHead{align-items:flex-start}.wide{grid-column:span 2}.topActions{gap:4px}.topIcon{width:38px;height:38px}.topActions .ghost{padding:9px 10px}.dateBar{font-size:12px}}
+@media(max-width:430px){.grid{grid-template-columns:repeat(2,1fr)}.categoryManager{grid-template-columns:1fr 1fr}.two{grid-template-columns:1fr}.dateTools{flex-wrap:wrap}.brand{font-size:18px}.userEmail{max-width:115px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.notesModal{padding:16px}.noteItem{min-width:145px}}
 
-  // Optimistic UI: show the stock decrease immediately.
-  p.quantity=Math.max(0,oldQty-1);
-  renderProducts(products.filter(x=>String(x.category_id)===String(current?.id)||x.category===current?.code));
+.calendarModal{width:min(900px,100%)}.calendarNav{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;margin:8px 0 12px}.calendarNav strong{text-align:center;color:var(--dark);font-size:18px}.calendarGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}.calWeekday{text-align:center;color:var(--muted);font-size:11px;font-weight:800;padding:6px}.calDay{min-height:62px;border:1px solid #dce7c9;border-radius:12px;background:#fbfdf7;color:var(--text);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}.calDay b{font-size:16px;color:var(--dark)}.calDay small{font-size:9px;color:var(--muted)}.calDay.todayDay{box-shadow:inset 0 0 0 2px var(--p)}.calDay.selectedDay{background:var(--p2);border-color:var(--dark)}.emptyDay{background:transparent;border-color:transparent}.calendarActions{display:flex;justify-content:center;margin:10px 0}.calendarStats{grid-template-columns:repeat(3,1fr);margin:0 0 10px}.calendarStats .panel{margin:0}.calendarModal .formStatus{text-align:center}@media(max-width:600px){.calendarNav{grid-template-columns:1fr 1fr}.calendarNav strong{grid-column:1/-1;grid-row:1}.calendarNav button{grid-row:2}.calDay{min-height:52px}.calendarStats{grid-template-columns:1fr 1fr}.calendarStats .panel:last-child{grid-column:span 2}}
 
-  const r=await db.rpc("sale_product",{p_product_id:p.id});
-  setTimeout(()=>d.style.transform="",120);
+/* Version 6.3 calendar notes/reminders */
+.compact{margin:0 0 10px}.calendarItem{border:1px solid #dce7c9;border-radius:14px;background:#fbfdf7;padding:11px;margin:7px 0}.calendarItem strong{display:block;color:var(--dark)}.calendarItem small{display:block;color:var(--muted);margin-top:4px}.calendarItem p{margin:7px 0;line-height:1.8}.toast{position:fixed;top:8px;left:50%;transform:translate(-50%,-130%);opacity:0;z-index:100;background:var(--dark);color:#fff;border-radius:14px;padding:10px 18px;box-shadow:0 10px 30px rgba(0,0,0,.2);pointer-events:none;font-weight:800;white-space:nowrap}.toast.show{animation:toastInOut 1s ease forwards}.toast.error{background:#a83f3f}@keyframes toastInOut{0%{transform:translate(-50%,-130%);opacity:0}18%{transform:translate(-50%,0);opacity:1}72%{transform:translate(-50%,0);opacity:1}100%{transform:translate(-50%,-130%);opacity:0}}@media(max-width:600px){.twoStats{grid-template-columns:1fr 1fr}.pic{height:155px}}@media(max-width:430px){.pic{height:150px}}
+.datePickerButton{min-width:150px;text-align:center}.fullDateButton{width:100%;text-align:right}.compactActions{margin:0 0 10px;justify-content:flex-start}.notificationItem{border:1px solid #dce7c9;border-radius:14px;background:#fbfdf7;padding:11px;margin:7px 0;display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.notificationItem.unread{background:#f5f9ea;border-right:4px solid #a44747}.notificationMain{flex:1}.notificationMain strong{display:block;color:var(--dark)}.notificationMain small{display:block;color:var(--muted);margin-top:4px}.notificationMain p{margin:7px 0;line-height:1.7}.notificationActions{margin:0;flex-shrink:0}@media(max-width:600px){.notificationItem{display:block}.notificationActions{margin-top:8px;justify-content:flex-start}.datePickerButton{min-width:130px}}
 
-  if(r.error){
-    // Roll back the visual change if the server rejected the sale.
-    p.quantity=oldQty;
-    if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
-    setStatus("ثبت فروش انجام نشد: "+r.error.message,true);
-    return;
-  }
 
-  setStatus(`فروش «${p.name}» ثبت شد ✅`);
-  await loadToday();
-  if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
-  loadDashboard();
+/* ===== v6.7 UI ===== */
+.sectionActions{display:flex;gap:8px;align-items:center}
+.latestSalesPanel{margin-top:14px}
+.latestSaleItem{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #e4ecd5}
+.latestSaleItem:last-child{border-bottom:0}
+.latestSaleMain{display:flex;flex-direction:column;gap:4px;min-width:130px}
+.latestSaleMain strong{font-size:14px}
+.latestSaleMain small{color:var(--muted)}
+.latestSaleValues{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px;font-size:12px;color:var(--muted)}
+.latestSaleValues b{color:var(--dark)}
+.latestSaleItem.cancelled{opacity:.78;background:#fff8f8}
+.negative{color:var(--danger)!important}
+.dashboardStats{grid-template-columns:repeat(5,minmax(0,1fr))}
+.productSalesList{display:flex;flex-direction:column;gap:8px}
+.productSalesLine{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #e4ecd5}
+.productSalesLine:last-child{border-bottom:0}
+.productSalesLine span{font-weight:700}
+.productSalesLine b{font-size:12px;color:var(--muted)}
+.reportProductsPanel{margin-top:12px}
+.cancelRow{opacity:.78;background:#fff8f8}
+.productRowActions,.categoryManageActions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.categoryNameInput{width:100%;border:1px solid #d6e2bf;border-radius:12px;padding:10px;background:#fbfdf8;color:var(--text);font:inherit;font-weight:700}
+.actionNotification{position:fixed;z-index:9999;top:-130px;left:50%;transform:translateX(-50%);width:min(92vw,480px);padding:14px 18px;border-radius:16px;background:#fff;box-shadow:0 12px 32px rgba(40,60,20,.20);border:1px solid #dce9bd;display:flex;flex-direction:column;gap:4px;text-align:center;opacity:0;pointer-events:none}
+.actionNotification strong{font-size:16px;color:var(--dark)}
+.actionNotification span{font-size:13px;color:var(--muted)}
+.actionNotification.show{animation:actionDrop 1.5s ease forwards}
+.actionNotification.cancel{border-color:#eccaca}
+.actionNotification.cancel strong{color:var(--danger)}
+@keyframes actionDrop{
+  0%{top:-120px;opacity:0}
+  15%{top:18px;opacity:1}
+  70%{top:18px;opacity:1}
+  100%{top:-120px;opacity:0}
 }
-async function openCancel(p){const r=await db.rpc("cancel_product",{p_product_id:p.id});if(r.error){showToast("لغو فروش انجام نشد",true);return}p.quantity=Number(p.quantity||0)+1;playCancelSound();showToast(`فروش «${p.name}» لغو شد ↩️`);await loadToday();if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));loadDashboard();if(!$('calendarModal').classList.contains("hidden"))loadCalendarSales(calendarDate)}
-async function getDay(s){const[a,b]=bounds(s);return db.from("sales").select("id,product_id,product_name,unit_price,purchase_price,quantity,total_amount,profit_amount,action,cancel_of_sale_id,created_at").gte("created_at",a).lt("created_at",b).order("created_at",{ascending:true})}
-function aggregate(rows){const map=new Map();for(const x of rows){const key=x.product_id||x.product_name,o=map.get(key)||{name:x.product_name,qty:0,cancel:0,sales:0,profit:0},q=Number(x.quantity||1),v=Number(x.total_amount||0),pr=Number(x.profit_amount??((Number(x.unit_price||0)-Number(x.purchase_price||0))*q));if(x.action==="cancel"){o.qty-=q;o.cancel+=q;o.sales-=v;o.profit-=pr}else{o.qty+=q;o.sales+=v;o.profit+=pr}map.set(key,o)}return[...map.values()].filter(x=>x.qty!==0||x.cancel!==0)}
-function summary(rows){const a=aggregate(rows);return{rows,a,sales:a.reduce((n,x)=>n+x.sales,0),items:a.reduce((n,x)=>n+x.qty,0),cancels:a.reduce((n,x)=>n+x.cancel,0),profit:a.reduce((n,x)=>n+x.profit,0)}}
-function makeTable(rows){if(!rows.length)return`<div class="empty">No data.</div>`;return`<table class="table"><thead><tr><th>Product</th><th>Net Qty</th><th>Sales</th><th>Profit</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${esc(x.name)}</td><td>${num(x.qty)}</td><td>${fmt(x.sales)}</td><td class="profit">${fmt(x.profit)}</td></tr>`).join("")}</tbody></table>`}
-function makeReportProductTable(rows){if(!rows.length)return`<div class="empty">هنوز محصولی ثبت نشده است.</div>`;return`<div class="reportTableScroll"><table class="table"><thead><tr><th>Product</th><th>Category</th><th>Purchase Price</th><th>Sale Price</th><th>Sold</th><th>Current Stock</th><th>Sales Amount</th><th>Profit</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.category)}</td><td>${fmt(x.purchase_price)}</td><td>${fmt(x.unit_price)}</td><td>${num(x.sold)}</td><td>${num(x.stock)}</td><td>${fmt(x.sales)}</td><td class="profit">${fmt(x.profit)}</td></tr>`).join("")}</tbody></table></div>`}
-async function loadToday(){const r=await getDay(today());if(r.error){setStatus("خطا در خواندن فروش امروز: "+r.error.message,true);return}const x=summary(r.data||[]);$("totalSales").textContent=fmt(x.sales);$("saleCount").textContent=num(x.items)}
-async function loadDashboard(){const r=await getDay(today());if(r.error)return;const s=summary(r.data||[]);$("dSales").textContent=fmt(s.sales);$("dItems").textContent=num(s.items);$("dProfit").textContent=fmt(s.profit);$("productStats").innerHTML=makeTable([...s.a].sort((a,b)=>b.sales-a.sales));const low=products.filter(p=>Number(p.quantity||0)<=Number(p.min_quantity||0));$("stockAlerts").innerHTML=low.length?low.map(p=>`<div class="alert">⚠️ ${esc(p.name)} — موجودی ${num(p.quantity)} عدد</div>`).join(""):`<div class="ok">موجودی محصولی زیر حداقل تعیین‌شده نیست.</div>`}
-function tehranTime(x){return new Date(x).toLocaleTimeString("fa-IR",{timeZone:TZ,hour:"2-digit",minute:"2-digit"})}
-async function loadReport(){const sdate=$("reportDate").value||today();$("reportDate").value=sdate;const r=await getDay(sdate);if(r.error){$("reportRows").innerHTML=`<div class="empty">خطا: ${esc(r.error.message)}</div>`;return}const s=summary(r.data||[]);$("rSales").textContent=fmt(s.sales);$("rItems").textContent=num(s.items);$("rProfit").textContent=fmt(s.profit);const reportProducts=products.map(p=>{const a=s.a.find(x=>String(x.name)===String(p.name));const c=catForProduct(p);return{name:p.name,category:c?.name||"Other",purchase_price:Number(p.purchase_price||0),unit_price:Number(p.unit_price||0),sold:Number(a?.qty||0),stock:Number(p.quantity||0),sales:Number(a?.sales||0),profit:Number(a?.profit||0)}}).sort((a,b)=>b.sales-a.sales||a.name.localeCompare(b.name));$("reportProductStats").innerHTML=makeReportProductTable(reportProducts);$("reportRows").innerHTML=s.rows.filter(x=>x.action!=="cancel").length?`<table class="table"><thead><tr><th>Time</th><th>Product</th><th>Amount</th></tr></thead><tbody>${s.rows.filter(x=>x.action!=="cancel").map(x=>`<tr><td>${tehranTime(x.created_at)}</td><td>${esc(x.product_name)}</td><td>${fmt(x.total_amount)}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">No sales for this day.</div>`}
-function moveReport(n){const d=new Date($("reportDate").value+"T12:00:00");d.setDate(d.getDate()+n);$("reportDate").value=d.toISOString().slice(0,10);loadReport()}$("prevDay").onclick=()=>moveReport(-1);$("nextDay").onclick=()=>moveReport(1);$("todayBtn").onclick=()=>{$("reportDate").value=today();loadReport()};$("reportDate").onchange=loadReport;
-function localParts(iso){const parts=new Intl.DateTimeFormat("en-US",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",hour12:false,weekday:"short"}).formatToParts(new Date(iso));const o={};parts.forEach(p=>o[p.type]=p.value);return o}
-async function loadAnalytics(){const start=new Date(Date.now()-30*864e5).toISOString(),r=await db.from("sales").select("product_id,product_name,quantity,action,created_at").gte("created_at",start).order("created_at",{ascending:true});if(r.error){setStatus("خطای تحلیل: "+r.error.message,true);return}const hour=Array(24).fill(0),dow=Array(7).fill(0),productHour=new Map(),productTotal=new Map();for(const x of r.data||[]){const q=Number(x.quantity||1)*(x.action==="cancel"?-1:1),p=localParts(x.created_at),h=Math.min(23,Number(p.hour)),wi=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(p.weekday);hour[h]+=q;if(wi>=0)dow[wi]+=q;productTotal.set(x.product_name,(productTotal.get(x.product_name)||0)+q);const key=x.product_id||x.product_name;if(!productHour.has(key))productHour.set(key,{name:x.product_name,hours:Array(24).fill(0)});productHour.get(key).hours[h]+=q}drawBars("hourChart",Array.from({length:24},(_,i)=>String(i)),hour);drawBars("dowChart",days,dow);const ph=[...productHour.values()].map(x=>{const mx=Math.max(...x.hours);return{name:x.name,hour:x.hours.indexOf(mx),qty:mx}}).filter(x=>x.qty>0).sort((a,b)=>b.qty-a.qty),pt=[...productTotal.entries()].filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);$("peakHour").textContent=`اوج ساعت کل: ${num(hour.indexOf(Math.max(...hour)))}:00`;$("peakDay").textContent=`اوج روز هفته: ${days[dow.indexOf(Math.max(...dow))]}`;$("peakProduct").textContent=pt.length?`پرفروش‌ترین محصول: ${esc(pt[0][0])} — ${num(pt[0][1])} عدد`:`پرفروش‌ترین محصول: —`;$("productPeaks").innerHTML=ph.length?`<table class="table"><thead><tr><th>Product</th><th>Peak Hour</th><th>Qty</th></tr></thead><tbody>${ph.map(x=>`<tr><td>${esc(x.name)}</td><td>${num(x.hour)}:00</td><td>${num(x.qty)}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">No data.</div>`}
-function drawBars(id,labels,values){const c=$(id);if(!c)return;const ctx=c.getContext("2d"),ratio=window.devicePixelRatio||1,w=Math.max(c.clientWidth,300),h=240;c.width=w*ratio;c.height=h*ratio;ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);const max=Math.max(1,...values),slot=w/values.length,bw=slot*.7;ctx.font="11px Tahoma";values.forEach((v,i)=>{const bh=Math.max(0,v/max*(h-50)),x=i*slot+(slot-bw)/2,y=h-bh-30;ctx.fillStyle="#6f9630";ctx.fillRect(x,y,bw,bh);ctx.fillStyle="#333";ctx.textAlign="center";ctx.fillText(labels[i],x+bw/2,h-10)})}
-function renderProductManager(){$("productCards").innerHTML=products.length?products.map(p=>{const low=Number(p.quantity||0)<=Number(p.min_quantity||0),c=catForProduct(p),im=p.image_url?`<img src="${esc(p.image_url)}" alt="">`:c?.icon||"🛍️";return`<div class="productRow"><div class="productInfo"><div class="thumb">${im}</div><div><h3>${esc(p.name)}</h3><small>${esc(c?.name||"Other")} · خرید: ${fmt(p.purchase_price)} · فروش: ${fmt(p.unit_price)}</small><br><small class="${low?"stockLow":""}">موجودی: ${num(p.quantity)} · حداقل: ${num(p.min_quantity)}</small></div></div><button class="ghost editProduct" data-id="${esc(p.id)}">Edit</button></div>`}).join(""):`<div class="empty">هنوز محصولی ثبت نشده است.</div>`;document.querySelectorAll(".editProduct").forEach(b=>b.onclick=()=>openProduct(b.dataset.id))}
-async function fileToDataURL(file){if(!file)return null;if(!file.type.startsWith("image/"))throw new Error("لطفاً یک فایل تصویری انتخاب کنید.");if(file.size>8*1024*1024)throw new Error("حجم عکس باید کمتر از ۸ مگابایت باشد.");const src=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error("خواندن عکس ناموفق بود."));r.readAsDataURL(file)});return await new Promise(resolve=>{const im=new Image();im.onload=()=>{const max=900,scale=Math.min(1,max/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.max(1,Math.round(im.width*scale));c.height=Math.max(1,Math.round(im.height*scale));c.getContext("2d").drawImage(im,0,0,c.width,c.height);resolve(c.toDataURL("image/jpeg",.78))};im.onerror=()=>resolve(src);im.src=src})}
-function showImagePreview(data){$("imagePreview").innerHTML=data?`<img src="${esc(data)}" alt="preview">`:`<span>No image</span>`}
-function fillCategorySelect(selected){$("pCategory").innerHTML=categories.map(c=>`<option value="${esc(c.id)}" ${String(c.id)===String(selected)?"selected":""}>${esc(c.name)}</option>`).join("")}
-function openProduct(id=null){editingProduct=id?products.find(p=>String(p.id)===String(id)):null;selectedImageData=editingProduct?.image_url||null;$("productModalTitle").textContent=editingProduct?"Edit Product":"New Product";$("pName").value=editingProduct?.name||"";fillCategorySelect(editingProduct?.category_id||categories[0]?.id);$("pImage").value="";$("pBuy").value=editingProduct?.purchase_price??0;$("pSell").value=editingProduct?.unit_price??0;$("pQty").value=editingProduct?.quantity??0;$("pMin").value=editingProduct?.min_quantity??0;$("productFormStatus").textContent="";showImagePreview(selectedImageData);$("productModal").classList.remove("hidden")}
-function closeProduct(){$("productModal").classList.add("hidden");editingProduct=null;selectedImageData=null;$("pImage").value=""}
-$("newProduct").onclick=()=>openProduct();$("pCancel").onclick=closeProduct;$("productModal").onclick=e=>{if(e.target===$("productModal"))closeProduct()};$("pImage").onchange=async()=>{const file=$("pImage").files?.[0];if(!file)return;$("productFormStatus").textContent="در حال آماده‌سازی عکس…";try{selectedImageData=await fileToDataURL(file);showImagePreview(selectedImageData);$("productFormStatus").textContent="عکس آماده شد ✅"}catch(e){selectedImageData=null;showImagePreview(null);$("productFormStatus").textContent=e.message}};
-$("pSave").onclick=async()=>{const name=$("pName").value.trim(),category_id=$("pCategory").value;if(!name){$("productFormStatus").textContent="نام محصول را وارد کنید.";return}if(!category_id){$("productFormStatus").textContent="دسته را انتخاب کنید.";return}const data={name,category_id,image_url:selectedImageData||null,purchase_price:Number($("pBuy").value||0),unit_price:Number($("pSell").value||0),quantity:Math.max(0,Number($("pQty").value||0)),min_quantity:Math.max(0,Number($("pMin").value||0)),updated_at:new Date().toISOString()};if(!editingProduct)data.created_at=new Date().toISOString();$("pSave").disabled=true;$("productFormStatus").textContent="در حال ذخیره…";const r=editingProduct?await db.from("products").update(data).eq("id",editingProduct.id):await db.from("products").insert([data]);$("pSave").disabled=false;if(r.error){$("productFormStatus").textContent="ذخیره نشد: "+r.error.message;return}closeProduct();await load();setStatus("محصول با موفقیت ذخیره شد ✅")};
-let pendingCategoryImages={};
-function renderCategoryManager(){const box=$("categoryCards");box.innerHTML=categories.map(c=>{const preview=pendingCategoryImages[c.id]||c.image_url;return`<div class="catManage" data-cat-card="${esc(c.id)}"><strong>${esc(c.name)}</strong><div class="catImg">${preview?`<img src="${esc(preview)}" alt="${esc(c.name)}">`:`<span>${c.icon||"🛍️"}</span>`}</div><label class="fileButton">Choose File<input type="file" accept="image/*" data-cat-file="${esc(c.id)}"></label><button type="button" class="primary small" data-cat-save="${esc(c.id)}">Save Category Image</button><div class="formStatus" data-cat-status="${esc(c.id)}"></div></div>`}).join("");box.querySelectorAll("[data-cat-file]").forEach(inp=>inp.onchange=async()=>{const id=inp.dataset.catFile,card=inp.closest(".catManage"),status=card.querySelector("[data-cat-status]"),file=inp.files?.[0];if(!file)return;status.textContent="در حال آماده‌سازی عکس دسته…";try{pendingCategoryImages[id]=await fileToDataURL(file);const c=categories.find(x=>String(x.id)===String(id));card.querySelector(".catImg").innerHTML=catImage({...c,image_url:pendingCategoryImages[id]});status.textContent="عکس آماده شد ✅ — حالا Save را بزنید."}catch(e){delete pendingCategoryImages[id];status.textContent=e.message}});box.querySelectorAll("[data-cat-save]").forEach(btn=>btn.onclick=async()=>{const id=btn.dataset.catSave,c=categories.find(x=>String(x.id)===String(id)),card=btn.closest(".catManage"),status=card.querySelector("[data-cat-status]"),image=pendingCategoryImages[id];if(!image){status.textContent="ابتدا برای همین دسته یک عکس انتخاب کنید.";return}btn.disabled=true;status.textContent="در حال ذخیره عکس دسته…";const r=await db.from("categories").update({image_url:image,updated_at:new Date().toISOString()}).eq("id",id);btn.disabled=false;if(r.error){status.textContent="ذخیره نشد: "+r.error.message;return}c.image_url=image;delete pendingCategoryImages[id];status.textContent="عکس دسته با موفقیت ذخیره شد ✅";renderCategories();renderCategoryManager()})}
-function openCategoryManager(){pendingCategoryImages={};renderCategoryManager();$("categoryImageModal").classList.remove("hidden")}
-function closeCategoryManager(){pendingCategoryImages={};$("categoryImageModal").classList.add("hidden")}
-$("manageCategories").onclick=openCategoryManager;$("categoryImageClose").onclick=closeCategoryManager;$("categoryImageModal").onclick=e=>{if(e.target===$("categoryImageModal"))closeCategoryManager()};
-function monthBounds(month){const[y,m]=month.split("-").map(Number),start=new Date(`${month}-01T00:00:00+03:30`),next=m===12?`${y+1}-01-01T00:00:00+03:30`:`${y}-${String(m+1).padStart(2,"0")}-01T00:00:00+03:30`;return[start.toISOString(),new Date(next).toISOString()]}
-async function monthlyPdf(){const month=$("monthInput")?.value||today().slice(0,7),[start,end]=monthBounds(month),r=await db.from("sales").select("product_id,product_name,unit_price,purchase_price,quantity,total_amount,profit_amount,action,created_at").gte("created_at",start).lt("created_at",end).order("created_at",{ascending:true});if(r.error){setStatus("گزارش ماهانه آماده نشد: "+r.error.message,true);return}const s=summary(r.data||[]),html=`<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>گزارش ${month}</title><style>body{font-family:Tahoma;padding:25px}.table{width:100%;border-collapse:collapse}.table th,.table td{border:1px solid #aaa;padding:7px;text-align:center}</style><h1>گزارش ماهانه سبد من — ${month}</h1><p>فروش خالص: ${fmt(s.sales)} | تعداد: ${num(s.items)} | لغو: ${num(s.cancels)} | سود: ${fmt(s.profit)}</p>${makeTable([...s.a].sort((a,b)=>b.sales-a.sales))}<h2>جزئیات</h2><table class="table"><tr><th>زمان</th><th>محصول</th><th>عملیات</th><th>مبلغ</th></tr>${s.rows.map(x=>`<tr><td>${tehranTime(x.created_at)}</td><td>${esc(x.product_name)}</td><td>${x.action==="cancel"?"لغو":"فروش"}</td><td>${fmt(x.total_amount)}</td></tr>`).join("")}</table><script>window.onload=()=>setTimeout(()=>window.print(),400)</script>`;const w=window.open("","_blank");if(!w){setStatus("پنجره PDF توسط مرورگر مسدود شد.",true);return}w.document.open();w.document.write(html);w.document.close()}
-$("monthlyPdf")?.addEventListener("click",monthlyPdf);$("dashRefresh").onclick=loadDashboard;$("refreshButton")?.addEventListener("click",load);
-
-// ===== Persian date + clock =====
-function updateDateTime(){const now=new Date();const dateText=new Intl.DateTimeFormat("fa-IR-u-ca-persian",{timeZone:TZ,year:"numeric",month:"long",day:"numeric",weekday:"long"}).format(now);const timeText=new Intl.DateTimeFormat("fa-IR",{timeZone:TZ,hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(now);if($("persianDate"))$("persianDate").textContent=dateText;if($("clock"))$("clock").textContent=timeText;if($("notesDateText"))$("notesDateText").textContent=`امروز: ${dateText} — ${timeText}`}
-updateDateTime();setInterval(updateDateTime,1000);
-
-// ===== Persian calendar =====
-// ===== Calendar + dated notes + reminders =====
-const faWeekdays=["شنبه","یکشنبه","دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه","جمعه"],monthNames=["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"];
-function persianParts(iso){const parts=new Intl.DateTimeFormat("en-US-u-ca-persian",{timeZone:TZ,year:"numeric",month:"numeric",day:"numeric"}).formatToParts(new Date(iso)),o={};parts.forEach(x=>{if(x.type!=="literal")o[x.type]=Number(x.value)});return o}
-function persianLabel(iso){return new Intl.DateTimeFormat("fa-IR-u-ca-persian",{timeZone:TZ,year:"numeric",month:"long",day:"numeric",weekday:"long"}).format(new Date(iso))}
-function tehranYMD(d){const a=new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(d),o={};a.forEach(x=>{if(x.type!=="literal")o[x.type]=x.value});return `${o.year}-${o.month}-${o.day}`}
-function findPersianMonthStart(iso){const target=persianParts(iso),base=new Date(iso);for(let i=-40;i<=40;i++){const d=new Date(base.getTime()+i*86400000),x=persianParts(d.toISOString());if(x.year===target.year&&x.month===target.month&&x.day===1)return d}return base}
-function addDaysUTC(d,n){return new Date(new Date(d).getTime()+n*86400000)}
-function renderCalendar(){const start=findPersianMonthStart(calendarDate.toISOString()),sp=persianParts(start),todayP=persianParts(new Date().toISOString()),selP=persianParts(calendarDate.toISOString());$("calendarTitle").textContent=`${monthNames[sp.month-1]} ${new Intl.NumberFormat("fa-IR").format(sp.year)}`;$("calendarSelected").textContent=persianLabel(calendarDate);const grid=$("calendarGrid");grid.innerHTML=faWeekdays.map(x=>`<div class="calWeekday">${x}</div>`).join("");const first=(start.getUTCDay()+1)%7;for(let i=0;i<first;i++)grid.insertAdjacentHTML("beforeend",`<div class="calDay emptyDay"></div>`);for(let i=0;i<32;i++){const d=addDaysUTC(start,i),pp=persianParts(d.toISOString());if(pp.month!==sp.month)break;const label=new Intl.NumberFormat("fa-IR").format(pp.day),isToday=pp.year===todayP.year&&pp.month===todayP.month&&pp.day===todayP.day,isSelected=pp.year===selP.year&&pp.month===selP.month&&pp.day===selP.day;grid.insertAdjacentHTML("beforeend",`<button type="button" class="calDay ${isToday?"todayDay":""} ${isSelected?"selectedDay":""}" data-cal-iso="${d.toISOString()}"><b>${label}</b></button>`)}grid.querySelectorAll("[data-cal-iso]").forEach(b=>b.onclick=async()=>{calendarDate=new Date(b.dataset.calIso);renderCalendar();await loadCalendarSales(calendarDate)})}
-function movePersianMonth(delta){const start=findPersianMonthStart(calendarDate.toISOString()),target=new Date(start.getTime()+delta*32*86400000);calendarDate=findPersianMonthStart(target.toISOString());renderCalendar();loadCalendarSales(calendarDate)}
-async function loadCalendarSales(date){const g=tehranYMD(date);$("calendarStatus").textContent="در حال خواندن فروش…";const r=await getDay(g);if(r.error){$("calendarStatus").textContent="خطا: "+r.error.message;return}const x=summary(r.data||[]);$("calendarSales").textContent=fmt(x.sales);$("calendarItems").textContent=num(x.items);$("calendarSelected").textContent=persianLabel(date);$("calendarRows").innerHTML=x.rows.length?`<table class="table"><thead><tr><th>ساعت</th><th>محصول</th><th>مبلغ</th></tr></thead><tbody>${x.rows.filter(r=>r.action!=="cancel").map(r=>`<tr><td>${tehranTime(r.created_at)}</td><td>${esc(r.product_name)}</td><td>${fmt(r.total_amount)}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">برای این روز فروشی ثبت نشده است.</div>`;await loadCalendarNotes(g);await loadCalendarReminders(g);$("calendarStatus").textContent="اطلاعات روز به‌روز شد ✅"}
-async function loadCalendarNotes(date){const r=await db.from("notes").select("id,title,content,scheduled_date,created_at,updated_at").eq("scheduled_date",date).order("updated_at",{ascending:false}),box=$("calendarNotes");if(r.error){box.innerHTML=`<div class="empty">یادداشت‌ها خوانده نشد.</div>`;return}box.innerHTML=r.data?.length?r.data.map(n=>`<div class="calendarItem"><strong>📝 ${esc(n.title)}</strong><p>${esc(n.content)}</p><button class="ghost small" data-note-edit="${esc(n.id)}">ویرایش</button></div>`).join(""):`<div class="empty">برای این روز یادداشتی نیست.</div>`;box.querySelectorAll("[data-note-edit]").forEach(b=>b.onclick=()=>{closeCalendar();openNotes();setTimeout(()=>selectNote(b.dataset.noteEdit),0)})}
-async function loadCalendarReminders(date){const start=date+"T00:00:00+03:30",end=new Date(new Date(start).getTime()+86400000).toISOString(),r=await db.from("reminders").select("id,title,content,remind_at,completed").gte("remind_at",start).lt("remind_at",end).order("remind_at",{ascending:true}),box=$("calendarReminders");if(r.error){box.innerHTML=`<div class="empty">یادآورها خوانده نشد.</div>`;return}box.innerHTML=r.data?.length?r.data.map(x=>`<div class="calendarItem"><strong>🔔 ${esc(x.title)}</strong><small>${notificationDate(x.remind_at)}</small><p>${esc(x.content||"")}</p><button class="ghost small" data-rem-edit="${esc(x.id)}">ویرایش</button></div>`).join(""):`<div class="empty">برای این روز یادآوری نیست.</div>`;box.querySelectorAll("[data-rem-edit]").forEach(b=>b.onclick=()=>{closeCalendar();openReminder(b.dataset.remEdit)})}
-function openCalendar(){calendarDate=new Date();$("calendarModal").classList.remove("hidden");renderCalendar();loadCalendarSales(calendarDate)}
-function closeCalendar(){$("calendarModal").classList.add("hidden")}
-$("calendarButton").onclick=openCalendar;$("calendarClose").onclick=closeCalendar;$("calendarModal").onclick=e=>{if(e.target===$("calendarModal"))closeCalendar()};$("calendarPrev").onclick=()=>movePersianMonth(-1);$("calendarNext").onclick=()=>movePersianMonth(1);$("calendarToday").onclick=()=>{calendarDate=new Date();renderCalendar();loadCalendarSales(calendarDate)};
-$("calendarAddNote").onclick=()=>{closeCalendar();openNotes(tehranYMD(calendarDate))};$("calendarAddReminder").onclick=()=>openReminder(null,tehranYMD(calendarDate));
-
-// ===== Cancel toast + sound =====
-function showToast(message,error=false){const el=$("toast");if(!el)return;clearTimeout(toastTimer);el.textContent=message;el.className="toast show "+(error?"error":"");toastTimer=setTimeout(()=>el.className="toast",1000)}
-function playCancelSound(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const c=new C(),o=c.createOscillator(),g=c.createGain();o.type="sine";o.frequency.setValueAtTime(520,c.currentTime);o.frequency.exponentialRampToValueAtTime(180,c.currentTime+.18);g.gain.setValueAtTime(.001,c.currentTime);g.gain.exponentialRampToValueAtTime(.18,c.currentTime+.015);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.22);o.connect(g);g.connect(c.destination);o.start();o.stop(c.currentTime+.23);setTimeout(()=>c.close(),300)}catch(e){}}
-function playReminderSound(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const c=new C(),o=c.createOscillator(),g=c.createGain();o.type="triangle";o.frequency.setValueAtTime(740,c.currentTime);o.frequency.setValueAtTime(880,c.currentTime+.12);g.gain.setValueAtTime(.001,c.currentTime);g.gain.exponentialRampToValueAtTime(.14,c.currentTime+.02);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.38);o.connect(g);g.connect(c.destination);o.start();o.stop(c.currentTime+.4);setTimeout(()=>c.close(),500)}catch(e){}}
-// ===== Shared Supabase notebook =====
-async function loadNotes(){const r=await db.from("notes").select("id,title,content,scheduled_date,created_at,updated_at").order("updated_at",{ascending:false});if(r.error){$("noteStatus").textContent="خواندن دفترچه ناموفق بود: "+r.error.message;return false}notes=r.data||[];renderNotes();return true}
-function renderNotes(){const box=$("notesList");if(!notes.length){box.innerHTML=`<div class="notesEmpty">هنوز یادداشتی ثبت نشده است.</div>`;editingNote=null;clearNoteEditor();return}box.innerHTML=notes.map(n=>`<div class="noteItem ${editingNote&&editingNote.id===n.id?"active":""}" data-note-id="${esc(n.id)}"><strong>${esc(n.title||"بدون عنوان")}</strong><small>${n.scheduled_date?esc(n.scheduled_date)+" · ":""}${esc((n.content||"").replace(/\s+/g," ").slice(0,80))}</small></div>`).join("");box.querySelectorAll("[data-note-id]").forEach(el=>el.onclick=()=>selectNote(el.dataset.noteId))}
-function clearNoteEditor(){$("noteTitle").value="";$('noteContent').value="";$('noteDelete').classList.add("hidden");$('noteStatus').textContent="";if($('noteDate'))$('noteDate').value=""}
-function selectNote(id){editingNote=notes.find(n=>String(n.id)===String(id))||null;if(!editingNote)return;$('noteTitle').value=editingNote.title||"";$('noteContent').value=editingNote.content||"";$('noteDelete').classList.remove("hidden");$('noteStatus').textContent="";if($('noteDate'))$('noteDate').value=editingNote.scheduled_date||"";renderNotes()}
-function newNote(date=""){editingNote=null;clearNoteEditor();if($('noteDate'))$('noteDate').value=date||"";$('noteTitle').focus();renderNotes()}
-async function saveNote(){const title=$('noteTitle').value.trim()||"یادداشت",content=$('noteContent').value,date=$('noteDate')?.value||null;$('noteSave').disabled=true;$('noteStatus').textContent="در حال ذخیره…";let r;if(editingNote)r=await db.from("notes").update({title,content,scheduled_date:date,updated_at:new Date().toISOString()}).eq("id",editingNote.id);else r=await db.from("notes").insert([{title,content,scheduled_date:date}]);$('noteSave').disabled=false;if(r.error){$('noteStatus').textContent="ذخیره نشد: "+r.error.message;return}const wasNew=!editingNote;await loadNotes();if(wasNew&&notes[0])selectNote(notes[0].id);if(!$('calendarModal').classList.contains("hidden"))loadCalendarSales(calendarDate);$('noteStatus').textContent="ذخیره شد ✅"}
-async function deleteNote(){if(!editingNote)return;if(!confirm("این یادداشت حذف شود؟"))return;$('noteDelete').disabled=true;const id=editingNote.id,r=await db.from("notes").delete().eq("id",id);$('noteDelete').disabled=false;if(r.error){$('noteStatus').textContent="حذف نشد: "+r.error.message;return}editingNote=null;clearNoteEditor();await loadNotes()}
-async function openNotes(date=""){$('notesModal').classList.remove("hidden");$('noteStatus').textContent="در حال خواندن دفترچه…";await loadNotes();if(date)newNote(date);else if(notes.length)selectNote(notes[0].id);else newNote()}
-function closeNotes(){$('notesModal').classList.add("hidden")}
-$('notesButton').onclick=()=>openNotes();$('notesClose').onclick=closeNotes;$('notesModal').onclick=e=>{if(e.target===$('notesModal'))closeNotes()};$('noteNew').onclick=()=>newNote();$('noteSave').onclick=saveNote;$('noteDelete').onclick=deleteNote;
-
-// ===== Reminders =====
-async function loadReminders(){const r=await db.from("reminders").select("id,title,content,remind_at,completed").eq("completed",false).order("remind_at",{ascending:true});if(r.error)return false;reminders=r.data||[];renderRemindersList();updateReminderBadge();return true}
-function updateReminderBadge(){const b=$("notificationButton");if(!b)return;const due=reminders.filter(r=>new Date(r.remind_at).getTime()<=Date.now()).length;b.dataset.count=String(reminders.length);b.classList.toggle("hasBadge",reminders.length>0);b.title=reminders.length?`یادآورها (${reminders.length})`:"یادآورها";b.setAttribute("aria-label",b.title)}
-function renderRemindersList(){const box=$('remindersList');if(!box)return;box.innerHTML=reminders.length?reminders.map(r=>`<div class="calendarItem"><strong>🔔 ${esc(r.title)}</strong><small>${notificationDate(r.remind_at)}</small><p>${esc(r.content||"")}</p><div class="actions"><button class="ghost small" data-rem-open="${esc(r.id)}">ویرایش</button><button class="danger small" data-rem-done="${esc(r.id)}">انجام شد</button></div></div>`).join(""):`<div class="empty">یادآور فعالی وجود ندارد.</div>`;box.querySelectorAll("[data-rem-open]").forEach(b=>b.onclick=()=>openReminder(b.dataset.remOpen));box.querySelectorAll("[data-rem-done]").forEach(b=>b.onclick=()=>completeReminder(b.dataset.remDone))}
-function localInputValue(iso){const parts=new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date(iso)),o={};parts.forEach(x=>{if(x.type!=="literal")o[x.type]=x.value});return `${o.year}-${o.month}-${o.day}T${o.hour}:${o.minute}`}
-function openReminder(id=null,date=null){editingReminder=id?reminders.find(r=>String(r.id)===String(id)):null;$('reminderTitle').value=editingReminder?.title||"";$('reminderContent').value=editingReminder?.content||"";$('reminderAt').value=editingReminder?localInputValue(editingReminder.remind_at):`${date||tehranYMD(calendarDate)}T09:00`;$('reminderDelete').classList.toggle("hidden",!editingReminder);$('reminderStatus').textContent="";$('reminderModal').classList.remove("hidden")}
-function closeReminder(){$('reminderModal').classList.add("hidden");editingReminder=null}
-async function saveReminder(){const title=$('reminderTitle').value.trim(),content=$('reminderContent').value,remind_at=$('reminderAt').value;if(!title||!remind_at){$('reminderStatus').textContent="عنوان و زمان را وارد کنید.";return}$('reminderSave').disabled=true;let r=editingReminder?await db.from("reminders").update({title,content,remind_at}).eq("id",editingReminder.id):await db.from("reminders").insert([{title,content,remind_at}]);$('reminderSave').disabled=false;if(r.error){$('reminderStatus').textContent="ذخیره نشد: "+r.error.message;return}closeReminder();await loadReminders();if(!$('calendarModal').classList.contains("hidden"))loadCalendarSales(calendarDate);showToast("یادآور ذخیره شد 🔔")}
-async function deleteReminder(){if(!editingReminder)return;if(!confirm("این یادآور حذف شود؟"))return;const r=await db.from("reminders").delete().eq("id",editingReminder.id);if(r.error){$('reminderStatus').textContent="حذف نشد: "+r.error.message;return}closeReminder();await loadReminders()}
-async function completeReminder(id){const r=await db.from("reminders").update({completed:true}).eq("id",id);if(r.error)return;await loadReminders();showToast("یادآور انجام شد ✅")}
-async function openRemindersList(){$('remindersListModal').classList.remove("hidden");await loadReminders()}
-$('notificationButton').onclick=async()=>{if("Notification" in window&&Notification.permission==="default")await Notification.requestPermission().catch(()=>{});openRemindersList()};$('remindersListClose').onclick=()=>$('remindersListModal').classList.add("hidden");$('remindersListModal').onclick=e=>{if(e.target===$('remindersListModal'))$('remindersListModal').classList.add("hidden")};$('reminderClose').onclick=closeReminder;$('reminderSave').onclick=saveReminder;$('reminderDelete').onclick=deleteReminder;
-let lastReminderCheck=0;async function checkReminders(){const now=Date.now();if(now-lastReminderCheck<10000)return;lastReminderCheck=now;const r=await db.from("reminders").select("id,title,content,remind_at,completed").eq("completed",false).lte("remind_at",new Date().toISOString()).order("remind_at",{ascending:true});if(r.error||!r.data?.length)return;for(const x of r.data){const existing=await db.from("notifications").select("id").eq("kind","reminder").eq("reference_id",x.id).maybeSingle();if(!existing.data)await db.from("notifications").insert([{title:"یادآور",content:x.title,kind:"reminder",reference_id:x.id}]);showToast(`یادآور: ${x.title} 🔔`);playReminderSound();try{if("Notification" in window&&Notification.permission==="granted")new Notification("سبد من",{body:x.title})}catch(e){}await db.from("reminders").update({completed:true}).eq("id",x.id)}await loadReminders();await loadNotifications()}
-setInterval(checkReminders,10000);
-
-
-$("loginButton").onclick=async()=>{const e=$("email").value.trim(),p=$("password").value;if(!e||!p){$("loginStatus").textContent="ایمیل و رمز عبور را وارد کنید.";return}$("loginButton").disabled=true;const r=await db.auth.signInWithPassword({email:e,password:p});$("loginButton").disabled=false;if(r.error){$("loginStatus").textContent=r.error.message;return}show();await boot()};$("password").onkeydown=e=>{if(e.key==="Enter")$("loginButton").click()};$("logoutButton").onclick=async()=>{await db.auth.signOut();location.reload()};
-function show(){$("loginView").classList.add("hidden");$("appView").classList.remove("hidden")}
-async function boot(){const u=await db.auth.getUser();$("userEmail").textContent=u.data?.user?.email||"";$("reportDate").value=today();await load();await loadReminders();checkReminders()}
-(async()=>{const r=await db.auth.getSession();if(r.data?.session){show();await boot()}})();
-
-db.channel("sabadman-final-v6").on("postgres_changes",{event:"*",schema:"public",table:"sales"},async()=>{await loadToday();await loadDashboard();if(!$("reportView").classList.contains("hidden"))loadReport();if(!$("analyticsView").classList.contains("hidden"))loadAnalytics()}).on("postgres_changes",{event:"*",schema:"public",table:"products"},()=>load()).on("postgres_changes",{event:"*",schema:"public",table:"categories"},()=>load()).on("postgres_changes",{event:"*",schema:"public",table:"notes"},async()=>{if(!$("notesModal").classList.contains("hidden"))await loadNotes();if(!$('calendarModal').classList.contains("hidden"))loadCalendarSales(calendarDate)}).on("postgres_changes",{event:"*",schema:"public",table:"reminders"},async()=>{await loadReminders();if(!$('calendarModal').classList.contains("hidden"))loadCalendarSales(calendarDate)}).subscribe();
-
-// ===== Persian reminder date/time picker =====
-let reminderPickerDate=new Date(),reminderPickerTarget=null;
-function findPersianDate(year,month,day,reference=new Date()){const base=new Date(reference);for(let i=-370;i<=370;i++){const d=new Date(base);d.setUTCDate(d.getUTCDate()+i);const p=persianParts(d.toISOString());if(p.year===year&&p.month===month&&p.day===day)return d}return null}
-function renderReminderPicker(){const start=findPersianMonthStart(reminderPickerDate.toISOString()),sp=persianParts(start),title=`${monthNames[sp.month-1]} ${new Intl.NumberFormat("fa-IR").format(sp.year)}`;$('reminderPickerTitle').textContent=title;$('reminderPickerSelected').textContent=persianLabel(reminderPickerDate);const grid=$('reminderPickerGrid');grid.innerHTML=faWeekdays.map(x=>`<div class="calWeekday">${x}</div>`).join('');const firstDow=(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(gregorianWeekday(start))+1)%7;for(let i=0;i<firstDow;i++)grid.insertAdjacentHTML('beforeend','<div class="calDay emptyDay"></div>');const selected=persianParts(reminderPickerDate.toISOString()),nowP=persianParts(new Date().toISOString());for(let i=0;i<32;i++){const d=addDaysUTC(start,i),iso=d.toISOString(),pp=persianParts(iso);if(pp.month!==sp.month)break;const isToday=pp.year===nowP.year&&pp.month===nowP.month&&pp.day===nowP.day,isSelected=pp.year===selected.year&&pp.month===selected.month&&pp.day===selected.day;grid.insertAdjacentHTML('beforeend',`<button type="button" class="calDay ${isToday?'todayDay':''} ${isSelected?'selectedDay':''}" data-rp-iso="${iso}"><b>${num(pp.day)}</b></button>`)}grid.querySelectorAll('[data-rp-iso]').forEach(b=>b.onclick=()=>{reminderPickerDate=new Date(b.dataset.rpIso);renderReminderPicker()})}
-function openReminderPicker(){const raw=$('reminderAt').value;if(raw){reminderPickerDate=new Date(raw)}else{reminderPickerDate=new Date()}const t=raw?new Date(raw).toLocaleTimeString('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}):'09:00';$('reminderPickerTime').value=t;$('reminderPickerModal').classList.remove('hidden');renderReminderPicker()}
-function closeReminderPicker(){$('reminderPickerModal').classList.add('hidden')}
-function setReminderPickerMonth(delta){const p=persianParts(reminderPickerDate.toISOString());let y=p.year,m=p.month+delta;if(m<1){m=12;y--}if(m>12){m=1;y++}const d=findPersianDate(y,m,1,reminderPickerDate)||new Date();const currentDay=Math.min(p.day,m<=6?31:m<=11?30:29);reminderPickerDate=findPersianDate(y,m,currentDay,d)||d;renderReminderPicker()}
-function finishReminderPicker(){const p=persianParts(reminderPickerDate.toISOString()),g=findPersianDate(p.year,p.month,p.day,reminderPickerDate);if(!g){return}const tm=$('reminderPickerTime').value||'09:00',iso=new Date(`${new Intl.DateTimeFormat('en-CA',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).format(g)}T${tm}:00+03:30`).toISOString();$('reminderAt').value=iso;$('reminderAtDisplay').value=`${persianLabel(g)} — ${new Intl.DateTimeFormat('fa-IR',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(iso))}`;closeReminderPicker()}
-$('reminderPickerClose').onclick=closeReminderPicker;$('reminderPickerModal').onclick=e=>{if(e.target===$('reminderPickerModal'))closeReminderPicker()};$('reminderPickerPrev').onclick=()=>setReminderPickerMonth(-1);$('reminderPickerNext').onclick=()=>setReminderPickerMonth(1);$('reminderPickerToday').onclick=()=>{reminderPickerDate=new Date();renderReminderPicker()};$('reminderPickerDone').onclick=finishReminderPicker;
-const oldOpenReminder=openReminder;openReminder=function(id=null,date=null){oldOpenReminder(id,date);setTimeout(()=>{const raw=$('reminderAt').value; if(raw){const d=new Date(raw);$('reminderAtDisplay').value=`${persianLabel(d)} — ${new Intl.DateTimeFormat('fa-IR',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false}).format(d)}`}else $('reminderAtDisplay').value='';},0)};
-
-// ===== v6.6: one Persian date picker for every date field =====
-let genericDatePickerDate=new Date(),genericDatePickerTarget=null;
-function setHiddenDate(id,iso){if($(id))$(id).value=iso||""}
-function renderGenericDatePicker(){const start=findPersianMonthStart(genericDatePickerDate.toISOString()),sp=persianParts(start),sel=persianParts(genericDatePickerDate.toISOString()),now=persianParts(new Date().toISOString());$('datePickerTitle').textContent=`${monthNames[sp.month-1]} ${num(sp.year)}`;$('datePickerSelected').textContent=persianLabel(genericDatePickerDate);const grid=$('datePickerGrid');grid.innerHTML=faWeekdays.map(x=>`<div class="calWeekday">${x}</div>`).join('');const first=(gregorianWeekday(start)==='Sun'?1:gregorianWeekday(start)==='Mon'?2:gregorianWeekday(start)==='Tue'?3:gregorianWeekday(start)==='Wed'?4:gregorianWeekday(start)==='Thu'?5:gregorianWeekday(start)==='Fri'?6:0);for(let i=0;i<first;i++)grid.insertAdjacentHTML('beforeend','<div class="calDay emptyDay"></div>');for(let i=0;i<32;i++){const d=addDaysUTC(start,i),pp=persianParts(d.toISOString());if(pp.month!==sp.month)break;const isToday=pp.year===now.year&&pp.month===now.month&&pp.day===now.day,isSelected=pp.year===sel.year&&pp.month===sel.month&&pp.day===sel.day;grid.insertAdjacentHTML('beforeend',`<button type="button" class="calDay ${isToday?'todayDay':''} ${isSelected?'selectedDay':''}" data-gdp-iso="${d.toISOString()}"><b>${num(pp.day)}</b></button>`)}grid.querySelectorAll('[data-gdp-iso]').forEach(b=>b.onclick=()=>{genericDatePickerDate=new Date(b.dataset.gdpIso);renderGenericDatePicker()})}
-function openGenericDatePicker(target,initial){genericDatePickerTarget=target;genericDatePickerDate=initial?new Date(initial+'T12:00:00+03:30'):new Date();$('datePickerModal').classList.remove('hidden');renderGenericDatePicker()}
-function closeGenericDatePicker(){$('datePickerModal').classList.add('hidden');genericDatePickerTarget=null}
-function finishGenericDatePicker(){const g=tehranYMD(genericDatePickerDate);setHiddenDate(genericDatePickerTarget,g);if(genericDatePickerTarget==='noteDate')$('noteDateDisplay').textContent=persianLabel(genericDatePickerDate);if(genericDatePickerTarget==='reportDate'){$('reportDateDisplay').textContent=persianLabel(genericDatePickerDate);loadReport()}closeGenericDatePicker()}
-$('datePickerClose').onclick=closeGenericDatePicker;$('datePickerModal').onclick=e=>{if(e.target===$('datePickerModal'))closeGenericDatePicker()};$('datePickerPrev').onclick=()=>{const p=persianParts(genericDatePickerDate.toISOString());let y=p.year,m=p.month-1;if(m<1){m=12;y--}genericDatePickerDate=findPersianDate(y,m,Math.min(p.day,m<=6?31:m<=11?30:29),genericDatePickerDate)||findPersianDate(y,m,1,genericDatePickerDate);renderGenericDatePicker()};$('datePickerNext').onclick=()=>{const p=persianParts(genericDatePickerDate.toISOString());let y=p.year,m=p.month+1;if(m>12){m=1;y++}genericDatePickerDate=findPersianDate(y,m,Math.min(p.day,m<=6?31:m<=11?30:29),genericDatePickerDate)||findPersianDate(y,m,1,genericDatePickerDate);renderGenericDatePicker()};$('datePickerToday').onclick=()=>{genericDatePickerDate=new Date();renderGenericDatePicker()};$('datePickerDone')?.addEventListener('click',finishGenericDatePicker);
-$('noteDateDisplay').onclick=()=>openGenericDatePicker('noteDate',$('noteDate').value||tehranYMD(new Date()));$('reportDateDisplay').onclick=()=>openGenericDatePicker('reportDate',$('reportDate').value||tehranYMD(new Date()));
-const oldLoadReportV66=loadReport;loadReport=async function(){const sdate=$('reportDate').value||today();$('reportDate').value=sdate;$('reportDateDisplay').textContent=persianLabel(new Date(sdate+'T12:00:00+03:30'));return oldLoadReportV66()};
-const oldMoveReportV66=moveReport;moveReport=function(n){const base=$('reportDate').value||today();const d=new Date(base+'T12:00:00+03:30');d.setDate(d.getDate()+n);const iso=d.toISOString();$('reportDate').value=tehranYMD(d);$('reportDateDisplay').textContent=persianLabel(d);loadReport()};
-$('prevDay').onclick=()=>moveReport(-1);$('nextDay').onclick=()=>moveReport(1);$('todayBtn').onclick=()=>{$('reportDate').value=today();$('reportDateDisplay').textContent=persianLabel(new Date());loadReport()};
-const oldSelectNoteV66=selectNote;selectNote=function(id){oldSelectNoteV66(id);const d=$('noteDate').value;if($('noteDateDisplay'))$('noteDateDisplay').textContent=d?persianLabel(new Date(d+'T12:00:00+03:30')):'انتخاب تاریخ'};
-const oldNewNoteV66=newNote;newNote=function(date=''){oldNewNoteV66(date);$('noteDateDisplay').textContent=date?persianLabel(new Date(date+'T12:00:00+03:30')):'انتخاب تاریخ'};
-const oldClearNoteV66=clearNoteEditor;clearNoteEditor=function(){oldClearNoteV66();if($('noteDateDisplay'))$('noteDateDisplay').textContent='انتخاب تاریخ'};
-const oldRenderNotesV66=renderNotes;renderNotes=function(){oldRenderNotesV66();notes.forEach(n=>{});document.querySelectorAll('.noteItem small').forEach((el,i)=>{const n=notes[i];if(n?.scheduled_date){const text=el.textContent;el.textContent=persianLabel(new Date(n.scheduled_date+'T12:00:00+03:30'))+' · '+text.split(' · ').slice(1).join(' · ')}})};
-
-// ===== v6.6: persistent shared notifications =====
-let notifications=[];
-async function loadNotifications(){const r=await db.from('notifications').select('id,title,content,kind,reference_id,read_at,created_at').order('created_at',{ascending:false});if(r.error){console.warn(r.error.message);return false}notifications=r.data||[];renderNotifications();return true}
-function updateNotificationBadge(){const b=$('notificationButton');if(!b)return;const unread=notifications.filter(x=>!x.read_at).length;b.dataset.count=String(unread);b.classList.toggle('hasBadge',unread>0);b.title=unread?`اعلان خوانده‌نشده: ${num(unread)}`:'اعلان‌ها';b.setAttribute('aria-label',b.title)}
-function notificationDate(iso){return new Intl.DateTimeFormat('fa-IR-u-ca-persian',{timeZone:TZ,year:'numeric',month:'long',day:'numeric',weekday:'long',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(iso))}
-function renderNotifications(){const box=$('notificationsList');if(!box)return;const unread=notifications.filter(x=>!x.read_at).length;$('notificationsSummary').textContent=unread?`${num(unread)} اعلان خوانده نشده`:'همه اعلان‌ها خوانده شده‌اند';box.innerHTML=notifications.length?notifications.map(n=>`<div class="notificationItem ${n.read_at?'read':'unread'}"><div class="notificationMain"><strong>${n.read_at?'':'🔴 '}${esc(n.title)}</strong><small>${notificationDate(n.created_at)}</small><p>${esc(n.content||'')}</p></div><div class="actions notificationActions"><button class="ghost small" data-not-read="${esc(n.id)}">${n.read_at?'خوانده شد':'خواندم'}</button><button class="danger small" data-not-del="${esc(n.id)}">حذف</button></div></div>`).join(''):'<div class="empty">اعلانی وجود ندارد.</div>';box.querySelectorAll('[data-not-read]').forEach(b=>b.onclick=async()=>{const id=b.dataset.notRead;const n=notifications.find(x=>x.id===id);if(!n||n.read_at)return;const r=await db.from('notifications').update({read_at:new Date().toISOString()}).eq('id',id);if(!r.error)await loadNotifications()});box.querySelectorAll('[data-not-del]').forEach(b=>b.onclick=async()=>{const r=await db.from('notifications').delete().eq('id',b.dataset.notDel);if(!r.error)await loadNotifications()});updateNotificationBadge()}
-async function openNotifications(){await loadNotifications();$('notificationsModal').classList.remove('hidden')}
-$('notificationButton').onclick=async()=>{if('Notification' in window&&Notification.permission==='default')await Notification.requestPermission().catch(()=>{});await openNotifications()};$('notificationsClose').onclick=()=>$('notificationsModal').classList.add('hidden');$('notificationsModal').onclick=e=>{if(e.target===$('notificationsModal'))$('notificationsModal').classList.add('hidden')};$('notificationsDeleteAll').onclick=async()=>{if(!notifications.length)return;if(!confirm('همه اعلان‌ها حذف شوند؟'))return;const r=await db.from('notifications').delete().neq('id','00000000-0000-0000-0000-000000000000');if(!r.error)await loadNotifications()};
-const oldBootV66=boot;boot=async function(){await oldBootV66();await loadNotifications()};
-const oldRenderRemindersListV66=renderRemindersList;renderRemindersList=function(){oldRenderRemindersListV66();document.querySelectorAll('#remindersList .calendarItem small').forEach((el,i)=>{const r=reminders[i];if(r)el.textContent=notificationDate(r.remind_at)});};
-
-// Keep all user-facing date displays Persian.
-$('reportDate').value=today();$('reportDateDisplay').textContent=persianLabel(new Date());
-
-db.channel("sabadman-notifications-v66").on("postgres_changes",{event:"*",schema:"public",table:"notifications"},()=>loadNotifications()).subscribe();
-
-
-function playSaleSound(){
-  try{
-    const C=window.AudioContext||window.webkitAudioContext;if(!C)return;
-    const c=new C(),o=c.createOscillator(),g=c.createGain();
-    o.type="sine";o.frequency.value=880;g.gain.value=.045;
-    o.connect(g);g.connect(c.destination);o.start();
-    g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.09);
-    o.stop(c.currentTime+.09);
-  }catch(e){}
+@media(max-width:900px){.dashboardStats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){
+  .latestSaleItem{flex-direction:column}
+  .latestSaleValues{justify-content:flex-start}
+  .productSalesLine{grid-template-columns:1fr auto;}.productSalesLine b:last-child{grid-column:2}
 }
 
-/* ===== v6.7 requested changes ===== */
-let latestSalesRows=[];
 
-function showActionNotification(title, content, type="sale"){
-  const el=$("actionNotification");
-  if(!el)return;
-  el.className=`actionNotification ${type}`;
-  el.innerHTML=`<strong>${esc(title)}</strong><span>${esc(content)}</span>`;
-  el.classList.remove("show");
-  void el.offsetWidth;
-  el.classList.add("show");
-  clearTimeout(window.__actionNotificationTimer);
-  window.__actionNotificationTimer=setTimeout(()=>el.classList.remove("show"),1500);
+/* ===== v6.7.1 search & grouped product manager ===== */
+.searchBar{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:#fff;
+  border:1px solid #d9e4c7;
+  border-radius:16px;
+  padding:8px 12px;
+  margin:0 0 14px;
+  box-shadow:var(--shadow);
+}
+.searchBar span{font-size:18px}
+.searchBar input{
+  width:100%;
+  border:0;
+  outline:0;
+  background:transparent;
+  color:var(--text);
+  font:inherit;
+  min-height:32px;
+}
+.searchBar input::placeholder{color:#9aa58e}
+.productManagerGroup{
+  margin:0 0 18px;
+}
+.productManagerGroupTitle{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 12px;
+  margin-bottom:8px;
+  background:var(--p3);
+  border:1px solid #d9e4c7;
+  border-radius:14px;
+}
+.productManagerGroupTitle strong{color:var(--dark)}
+.productManagerGroupTitle small{
+  margin-right:auto;
+  color:var(--muted);
+  font-size:12px;
+}
+.productManagerGroupItems{display:flex;flex-direction:column}
+.productsSearchBar{margin-bottom:16px}
+@media(max-width:700px){
+  .productRow{align-items:flex-start}
+  .productInfo{min-width:0}
+  .productInfo>div:last-child{min-width:0}
+  .productRowActions{flex-direction:column}
 }
 
-async function loadLatestSales(){
-  const r=await db.from("sales").select("id,product_id,product_name,unit_price,purchase_price,quantity,total_amount,profit_amount,action,created_at").order("created_at",{ascending:false}).limit(3);
-  if(r.error){$("latestSales").innerHTML=`<div class="empty">خطا در خواندن آخرین فروش‌ها.</div>`;return}
-  latestSalesRows=r.data||[];
-  const box=$("latestSales");
-  if(!latestSalesRows.length){box.innerHTML=`<div class="empty">هنوز عملیات فروشی ثبت نشده است.</div>`;return}
-  box.innerHTML=latestSalesRows.map(x=>{
-    const cancel=x.action==="cancel";
-    const q=Number(x.quantity||1);
-    const sale=Number(x.unit_price||0)*q;
-    const profit=Number(x.profit_amount??((Number(x.unit_price||0)-Number(x.purchase_price||0))*q));
-    return `<div class="latestSaleItem ${cancel?"cancelled":""}">
-      <div class="latestSaleMain"><strong>${cancel?"↩️ ":"🛒 "}${esc(x.product_name)}</strong><small>${tehranTime(x.created_at)} · ${cancel?"لغو فروش":"فروش"}</small></div>
-      <div class="latestSaleValues"><span>خرید: ${fmt(x.purchase_price)}</span><span>فروش: ${fmt(x.unit_price)}</span><b class="${profit<0?"negative":""}">سود: ${fmt(cancel?-profit:profit)}</b></div>
-    </div>`;
-  }).join("");
+.lifetimeTable th,.lifetimeTable td{white-space:nowrap}
+.lifetimeTable td:last-child{font-weight:800}
+@media(max-width:760px){
+  .lifetimeTable{font-size:12px}
+  .lifetimeTable th,.lifetimeTable td{padding:9px 7px}
 }
 
-async function createStockNotifications(){
-  const low=products.filter(p=>Number(p.quantity||0)<=Number(p.min_quantity||0));
-  if(!low.length)return;
-  for(const p of low){
-    const ref=String(p.id);
-    const existing=await db.from("notifications").select("id,read_at").eq("kind","stock_alert").eq("reference_id",ref).order("created_at",{ascending:false}).limit(1);
-    if(existing.error)continue;
-    if(!existing.data?.length){
-      await db.from("notifications").insert([{title:"هشدار موجودی",content:`موجودی «${p.name}» به ${num(p.quantity)} عدد رسیده است. حداقل موجودی: ${num(p.min_quantity)} عدد.`,kind:"stock_alert",reference_id:ref}]);
-    }
-  }
-}
-
-async function loadNotificationsAndStock(){
-  await createStockNotifications();
-  await loadNotifications();
-}
-
-async function registerSaleV67(p,d){
-  if(Number(p.quantity||0)<=0){setStatus(`موجودی «${p.name}» تمام شده است.`,true);return}
-  d.style.transform="scale(.97)";
-  const r=await db.rpc("sale_product",{p_product_id:p.id});
-  setTimeout(()=>d.style.transform="",120);
-  if(r.error){setStatus("ثبت فروش انجام نشد: "+r.error.message,true);return}
-  p.quantity=Math.max(0,Number(p.quantity||0)-1);
-  playSaleSound();
-  showActionNotification("فروش ثبت شد",`${p.name} · فروش: ${fmt(p.unit_price)} · سود: ${fmt(Number(p.unit_price||0)-Number(p.purchase_price||0))}`,"sale");
-  setStatus(`فروش «${p.name}» ثبت شد ✅`);
-  await loadToday();
-  if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
-  await loadDashboard();
-  await loadLatestSales();
-  await createStockNotifications();
-  await loadNotifications();
-}
-
-async function openCancelV67(p){
-  const r=await db.rpc("cancel_product",{p_product_id:p.id});
-  if(r.error){showActionNotification("لغو فروش ناموفق",r.error.message,"cancel");setStatus("لغو فروش انجام نشد: "+r.error.message,true);return}
-  p.quantity=Number(p.quantity||0)+1;
-  playCancelSound();
-  const profit=Number(p.unit_price||0)-Number(p.purchase_price||0);
-  showActionNotification("فروش لغو شد",`${p.name} · فروش: ${fmt(p.unit_price)} · سود برگشتی: ${fmt(profit)}`,"cancel");
-  setStatus(`فروش «${p.name}» لغو شد ↩️`);
-  await loadToday();
-  if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));
-  await loadDashboard();
-  await loadLatestSales();
-  await loadNotifications();
-  if(!$("calendarModal").classList.contains("hidden"))loadCalendarSales(calendarDate);
-}
-
-registerSale=registerSaleV67;
-openCancel=openCancelV67;
-
-async function loadTodayV67(){
-  const r=await getDay(today());
-  if(r.error){setStatus("خطا در خواندن فروش امروز: "+r.error.message,true);return}
-  await loadLatestSales();
-}
-loadToday=loadTodayV67;
-
-
-async function loadLifetimeProductSales(){
-  const el=$("lifetimeProductSales");
-  if(!el)return;
-  const r=await db.from("sales")
-    .select("product_id,product_name,unit_price,purchase_price,quantity,total_amount,profit_amount,action,created_at")
-    .order("created_at",{ascending:true});
-
-  if(r.error){
-    el.innerHTML=`<div class="empty">خطا در دریافت آمار فروش: ${esc(r.error.message)}</div>`;
-    return;
-  }
-
-  const map=new Map();
-  for(const x of r.data||[]){
-    const q=Number(x.quantity||1);
-    const sign=x.action==="cancel"?-1:1;
-    const key=x.product_id||x.product_name;
-    const o=map.get(key)||{name:x.product_name||"—",qty:0,buy:0,sell:0,profit:0};
-    o.qty+=sign*q;
-    o.buy+=sign*Number(x.purchase_price||0)*q;
-    o.sell+=sign*Number(x.unit_price||0)*q;
-    o.profit+=sign*Number(x.profit_amount??((Number(x.unit_price||0)-Number(x.purchase_price||0))*q));
-    map.set(key,o);
-  }
-
-  const rows=[...map.values()]
-    .filter(x=>x.qty!==0||x.sell!==0||x.profit!==0)
-    .sort((a,b)=>b.sell-a.sell);
-
-  if(!rows.length){
-    el.innerHTML='<div class="empty">هنوز فروشی ثبت نشده است.</div>';
-    return;
-  }
-
-  el.innerHTML=`<div class="tableWrap"><table class="table lifetimeTable">
-    <thead><tr>
-      <th>محصول</th>
-      <th>تعداد فروش</th>
-      <th>جمع قیمت خرید</th>
-      <th>جمع قیمت فروش</th>
-      <th>سود فروش</th>
-    </tr></thead>
-    <tbody>${rows.map(x=>`<tr>
-      <td>${esc(x.name)}</td>
-      <td>${num(x.qty)}</td>
-      <td>${fmt(x.buy)}</td>
-      <td>${fmt(x.sell)}</td>
-      <td class="profit">${fmt(x.profit)}</td>
-    </tr>`).join("")}</tbody>
-  </table></div>`;
-}
-
-async function loadDashboardV67(){
-  await loadLifetimeProductSales();
-  const todayRows=await getDay(today());
-  if(todayRows.error)return;
-  const s=summary(todayRows.data||[]);
-  const month=today().slice(0,7);
-  const [ma,mb]=monthBounds(month);
-  const mr=await db.from("sales").select("product_id,product_name,unit_price,purchase_price,quantity,total_amount,profit_amount,action,created_at").gte("created_at",ma).lt("created_at",mb).order("created_at",{ascending:true});
-  const ms=mr.error?{sales:0,profit:0}:summary(mr.data||[]);
-  $("dSales").textContent=fmt(s.sales);
-  $("dItems").textContent=num(s.items);
-  $("dMonthSales").textContent=fmt(ms.sales);
-  $("dProfit").textContent=fmt(s.profit);
-  $("dMonthProfit").textContent=fmt(ms.profit);
-  $("productStats").innerHTML=products.length?`<div class="productSalesList">${products.map(p=>{
-    const a=s.a.find(x=>String(x.name)===String(p.name));
-    const sold=Number(a?.qty||0);
-    return `<div class="productSalesLine"><span>${esc(p.name)}</span><b>فروش: ${num(sold)}</b><b>موجودی: ${num(p.quantity)}</b></div>`;
-  }).join("")}</div>`:`<div class="empty">هنوز محصولی ثبت نشده است.</div>`;
-  const low=products.filter(p=>Number(p.quantity||0)<=Number(p.min_quantity||0));
-  $("stockAlerts").innerHTML=low.length?low.map(p=>`<div class="alert">⚠️ ${esc(p.name)} — موجودی ${num(p.quantity)} عدد</div>`).join(""):`<div class="ok">موجودی محصولی زیر حداقل تعیین‌شده نیست.</div>`;
-  await createStockNotifications();
-  await loadNotifications();
-}
-loadDashboard=loadDashboardV67;
-
-async function loadReportV67(){
-  const sdate=$("reportDate").value||today();
-  $("reportDate").value=sdate;
-  const r=await getDay(sdate);
-  if(r.error){$("reportRows").innerHTML=`<div class="empty">خطا: ${esc(r.error.message)}</div>`;return}
-  const s=summary(r.data||[]);
-  $("rSales").textContent=fmt(s.sales);$("rItems").textContent=num(s.items);$("rProfit").textContent=fmt(s.profit);
-  const reportProducts=products.map(p=>{
-    const a=s.a.find(x=>String(x.name)===String(p.name)),c=catForProduct(p);
-    return{name:p.name,category:c?.name||"Other",purchase_price:Number(p.purchase_price||0),unit_price:Number(p.unit_price||0),sold:Number(a?.qty||0),stock:Number(p.quantity||0),sales:Number(a?.sales||0),profit:Number(a?.profit||0)}
-  }).sort((a,b)=>b.sales-a.sales||a.name.localeCompare(b.name));
-  $("reportProductStats").innerHTML=makeReportProductTable(reportProducts);
-  const rows=[...(s.rows||[])].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
-  $("reportRows").innerHTML=rows.length?`<table class="table"><thead><tr><th>Time</th><th>Product</th><th>Operation</th><th>Amount</th></tr></thead><tbody>${rows.map(x=>{
-    const cancel=x.action==="cancel";
-    return `<tr class="${cancel?"cancelRow":""}"><td>${tehranTime(x.created_at)}</td><td>${esc(x.product_name)}</td><td>${cancel?"↩️ لغو شده":"🛒 فروش"}</td><td>${fmt(x.total_amount)}</td></tr>`;
-  }).join("")}</tbody></table>`:`<div class="empty">برای این روز عملیاتی ثبت نشده است.</div>`;
-}
-loadReport=loadReportV67;
-
-async function loadAnalyticsV67(){
-  const start30=new Date(Date.now()-30*864e5).toISOString();
-  const startYear=new Date(Date.now()-365*864e5).toISOString();
-  const r=await db.from("sales").select("product_id,product_name,quantity,action,created_at").gte("created_at",startYear).order("created_at",{ascending:true});
-  if(r.error){setStatus("خطای تحلیل: "+r.error.message,true);return}
-  const hour=Array(24).fill(0),dow=Array(7).fill(0),productHour=new Map(),productTotal=new Map(),monthly=new Map();
-  for(const x of r.data||[]){
-    const q=Number(x.quantity||1)*(x.action==="cancel"?-1:1),p=localParts(x.created_at),h=Math.min(23,Number(p.hour));
-    const iso=new Date(x.created_at);
-    const recent=iso>=new Date(start30);
-    if(recent){
-      hour[h]+=q;
-      const wi=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(p.weekday);
-      if(wi>=0)dow[wi]+=q;
-      productTotal.set(x.product_name,(productTotal.get(x.product_name)||0)+q);
-      const key=x.product_id||x.product_name;
-      if(!productHour.has(key))productHour.set(key,{name:x.product_name,hours:Array(24).fill(0)});
-      productHour.get(key).hours[h]+=q;
-    }
-    const mp=persianParts(x.created_at);
-    const monthKey=`${mp.year}-${String(mp.month).padStart(2,"0")}`;
-    monthly.set(monthKey,(monthly.get(monthKey)||0)+q);
-  }
-  drawBars("hourChart",Array.from({length:24},(_,i)=>String(i)),hour);
-  drawBars("dowChart",days,dow);
-  const sortedMonths=[...monthly.entries()].sort((a,b)=>a[0].localeCompare(b[0])).slice(-12);
-  drawBars("monthChart",sortedMonths.map(x=>{const [y,m]=x[0].split("-").map(Number);return `${monthNames[m-1]} ${num(y)}`}),sortedMonths.map(x=>x[1]));
-  const ph=[...productHour.values()].map(x=>{const mx=Math.max(...x.hours);return{name:x.name,hour:x.hours.indexOf(mx),qty:mx}}).filter(x=>x.qty>0).sort((a,b)=>b.qty-a.qty);
-  const pt=[...productTotal.entries()].filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);
-  $("peakHour").textContent=`اوج ساعت کل: ${num(hour.indexOf(Math.max(...hour)))}:00`;
-  $("peakDay").textContent=`اوج روز هفته: ${days[dow.indexOf(Math.max(...dow))]}`;
-  $("peakProduct").textContent=pt.length?`پرفروش‌ترین محصول: ${esc(pt[0][0])} — ${num(pt[0][1])} عدد`:`پرفروش‌ترین محصول: —`;
-  $("productPeaks").innerHTML=ph.length?`<table class="table"><thead><tr><th>Product</th><th>Peak Hour</th><th>Qty</th></tr></thead><tbody>${ph.map(x=>`<tr><td>${esc(x.name)}</td><td>${num(x.hour)}:00</td><td>${num(x.qty)}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">No data.</div>`;
-}
-loadAnalytics=loadAnalyticsV67;
-
-async function deleteProductV67(id){
-  const p=products.find(x=>String(x.id)===String(id)); if(!p)return;
-  if(!confirm(`محصول «${p.name}» حذف شود؟`))return;
-  const r=await db.from("products").delete().eq("id",id);
-  if(r.error){showToast("حذف محصول انجام نشد",true);setStatus("حذف محصول انجام نشد: "+r.error.message,true);return}
-  closeProduct();await load();setStatus(`محصول «${p.name}» حذف شد ✅`);
-}
-function renderProductManagerV67(){
-  $("productCards").innerHTML=products.length?products.map(p=>{
-    const low=Number(p.quantity||0)<=Number(p.min_quantity||0),c=catForProduct(p),im=p.image_url?`<img src="${esc(p.image_url)}" alt="">`:c?.icon||"🛍️";
-    return `<div class="productRow"><div class="productInfo"><div class="thumb">${im}</div><div><h3>${esc(p.name)}</h3><small>${esc(c?.name||"Other")} · خرید: ${fmt(p.purchase_price)} · فروش: ${fmt(p.unit_price)}</small><br><small class="${low?"stockLow":""}">موجودی: ${num(p.quantity)} · حداقل: ${num(p.min_quantity)}</small></div></div><div class="productRowActions"><button class="ghost editProduct" data-id="${esc(p.id)}">Edit</button><button class="danger small deleteProduct" data-id="${esc(p.id)}">Delete</button></div></div>`;
-  }).join(""):`<div class="empty">هنوز محصولی ثبت نشده است.</div>`;
-  document.querySelectorAll(".editProduct").forEach(b=>b.onclick=()=>openProduct(b.dataset.id));
-  document.querySelectorAll(".deleteProduct").forEach(b=>b.onclick=()=>deleteProductV67(b.dataset.id));
-}
-renderProductManager=renderProductManagerV67;
-
-async function deleteCategoryV67(id){
-  const c=categories.find(x=>String(x.id)===String(id));if(!c)return;
-  const used=products.some(p=>String(p.category_id)===String(id));
-  if(used){showToast("ابتدا محصولات این دسته را جابه‌جا یا حذف کنید",true);return}
-  if(!confirm(`دسته «${c.name}» حذف شود؟`))return;
-  const r=await db.from("categories").delete().eq("id",id);
-  if(r.error){showToast("حذف دسته انجام نشد",true);return}
-  await load();openCategoryManager();
-}
-
-async function saveCategoryV67(id,card){
-  const c=categories.find(x=>String(x.id)===String(id));if(!c)return;
-  const name=card.querySelector("[data-cat-name]")?.value.trim();
-  const image=pendingCategoryImages[id]||c.image_url||null;
-  if(!name){card.querySelector("[data-cat-status]").textContent="نام دسته را وارد کنید.";return}
-  const r=await db.from("categories").update({name,image_url:image,updated_at:new Date().toISOString()}).eq("id",id);
-  if(r.error){card.querySelector("[data-cat-status]").textContent="ذخیره نشد: "+r.error.message;return}
-  c.name=name;c.image_url=image;delete pendingCategoryImages[id];
-  card.querySelector("[data-cat-status]").textContent="دسته با موفقیت ذخیره شد ✅";
-  renderCategories();renderCategoryManager();
-}
-
-function renderCategoryManagerV67(){
-  const box=$("categoryCards");
-  box.innerHTML=categories.map(c=>{
-    const preview=pendingCategoryImages[c.id]||c.image_url;
-    return `<div class="catManage" data-cat-card="${esc(c.id)}">
-      <input class="categoryNameInput" data-cat-name value="${esc(c.name)}" aria-label="نام دسته">
-      <div class="catImg">${preview?`<img src="${esc(preview)}" alt="${esc(c.name)}">`:`<span>${c.icon||"🛍️"}</span>`}</div>
-      <label class="fileButton">Choose File<input type="file" accept="image/*" data-cat-file="${esc(c.id)}"></label>
-      <div class="categoryManageActions"><button type="button" class="primary small" data-cat-save="${esc(c.id)}">Save</button><button type="button" class="danger small" data-cat-delete="${esc(c.id)}">Delete</button></div>
-      <div class="formStatus" data-cat-status="${esc(c.id)}"></div>
-    </div>`;
-  }).join("");
-  box.querySelectorAll("[data-cat-file]").forEach(inp=>inp.onchange=async()=>{
-    const id=inp.dataset.catFile,card=inp.closest(".catManage"),status=card.querySelector("[data-cat-status]"),file=inp.files?.[0];if(!file)return;
-    status.textContent="در حال آماده‌سازی عکس دسته…";
-    try{pendingCategoryImages[id]=await fileToDataURL(file);const c=categories.find(x=>String(x.id)===String(id));card.querySelector(".catImg").innerHTML=catImage({...c,image_url:pendingCategoryImages[id]});status.textContent="عکس آماده شد ✅ — حالا Save را بزنید."}catch(e){delete pendingCategoryImages[id];status.textContent=e.message}
-  });
-  box.querySelectorAll("[data-cat-save]").forEach(b=>b.onclick=()=>saveCategoryV67(b.dataset.catSave,b.closest(".catManage")));
-  box.querySelectorAll("[data-cat-delete]").forEach(b=>b.onclick=()=>deleteCategoryV67(b.dataset.catDelete));
-}
-renderCategoryManager=renderCategoryManagerV67;
-
-$("salesRefresh").onclick=async()=>{await load();await loadLatestSales();};
-$("dashRefresh").onclick=async()=>{await load();await loadDashboard();};
-setTimeout(async()=>{
-  if(!$("appView")?.classList.contains("hidden")){
-    await loadLatestSales();
-    await loadDashboard();
-    await loadNotificationsAndStock();
-    if(!$("analyticsView").classList.contains("hidden"))await loadAnalytics();
-    if(!$("reportView").classList.contains("hidden"))await loadReport();
-  }
-},800);
-
-
-/* ===== v6.7.1: instant product search + grouped Products + notification order ===== */
-function searchNormalize(value){
-  return String(value||"")
-    .toLocaleLowerCase("fa-IR")
-    .replace(/ي/g,"ی").replace(/ى/g,"ی").replace(/ك/g,"ک")
-    .replace(/ۀ/g,"ه").replace(/ة/g,"ه")
-    .replace(/\u200c/g,"").replace(/\s+/g," ")
-    .trim();
-}
-
-function renderSalesSearchResults(query){
-  const q=searchNormalize(query);
-  const box=$("products"), cats=$("categories"), empty=$("empty");
-  if(!q){
-    cats.classList.remove("hidden");
-    box.classList.add("hidden");
-    empty.classList.add("hidden");
-    $("title").textContent="Categories";
-    $("subtitle").textContent="Choose a category";
-    $("back").classList.add("hidden");
-    return;
-  }
-  current=null;
-  cats.classList.add("hidden");
-  box.classList.remove("hidden");
-  $("back").classList.add("hidden");
-  $("title").textContent="Search results";
-  $("subtitle").textContent="محصولات مطابق جستجو";
-  const matches=products.filter(p=>searchNormalize(p.name).includes(q));
-  empty.classList.toggle("hidden",matches.length>0);
-  if(!matches.length){box.innerHTML="";return;}
-  renderProducts(matches);
-}
-
-function setupSalesProductSearch(){
-  const input=$("salesProductSearch");
-  if(!input)return;
-  input.addEventListener("input",()=>renderSalesSearchResults(input.value));
-}
-setupSalesProductSearch();
-
-const oldOpenCategoryV671=openCategory;
-openCategory=function(c){
-  const input=$("salesProductSearch");
-  if(input)input.value="";
-  oldOpenCategoryV671(c);
-};
-
-const oldBackSalesV671=$("back")?.onclick;
-if($("back"))$("back").addEventListener("click",()=>{if($("salesProductSearch"))$("salesProductSearch").value=""});
-
-function groupedProductManagerRender(){
-  const box=$("productCards"), input=$("productsSearch");
-  if(!box)return;
-  const q=searchNormalize(input?.value||"");
-  const filtered=products.filter(p=>!q||searchNormalize(p.name).includes(q));
-  if(!filtered.length){
-    box.innerHTML=`<div class="empty">${q?"محصولی با این نام پیدا نشد.":"هنوز محصولی ثبت نشده است."}</div>`;
-    return;
-  }
-  const groups=[];
-  categories.forEach(c=>{
-    const list=filtered.filter(p=>String(p.category_id)===String(c.id)||p.category===c.code);
-    if(list.length)groups.push({cat:c,items:list});
-  });
-  const assigned=new Set(groups.flatMap(g=>g.items.map(p=>String(p.id))));
-  const other=filtered.filter(p=>!assigned.has(String(p.id)));
-  if(other.length)groups.push({cat:{id:"__other",name:"Other",icon:"🛍️"},items:other});
-
-  box.innerHTML=groups.map(g=>`
-    <div class="productManagerGroup">
-      <div class="productManagerGroupTitle"><span>${esc(g.cat.icon||"🛍️")}</span><strong>${esc(g.cat.name||"Other")}</strong><small>${num(g.items.length)} محصول</small></div>
-      <div class="productManagerGroupItems">
-        ${g.items.map(p=>{
-          const low=Number(p.quantity||0)<=Number(p.min_quantity||0),c=catForProduct(p);
-          const im=p.image_url?`<img src="${esc(p.image_url)}" alt="">`:c?.icon||"🛍️";
-          return `<div class="productRow">
-            <div class="productInfo"><div class="thumb">${im}</div><div>
-              <h3>${esc(p.name)}</h3>
-              <small>خرید: ${fmt(p.purchase_price)} · فروش: ${fmt(p.unit_price)}</small><br>
-              <small class="${low?"stockLow":""}">موجودی: ${num(p.quantity)} · حداقل: ${num(p.min_quantity)}</small>
-            </div></div>
-            <div class="productRowActions"><button class="ghost editProduct" data-id="${esc(p.id)}">Edit</button><button class="danger small deleteProduct" data-id="${esc(p.id)}">Delete</button></div>
-          </div>`;
-        }).join("")}
-      </div>
-    </div>`).join("");
-
-  box.querySelectorAll(".editProduct").forEach(b=>b.onclick=()=>openProduct(b.dataset.id));
-  box.querySelectorAll(".deleteProduct").forEach(b=>b.onclick=()=>deleteProductV67(b.dataset.id));
-}
-
-renderProductManager=groupedProductManagerRender;
-
-if($("productsSearch")){
-  $("productsSearch").addEventListener("input",groupedProductManagerRender);
-}
-
-const oldLoadV671=load;
-load=async function(){
-  await oldLoadV671();
-  groupedProductManagerRender();
-};
-
-function renderNotificationsV671(){
-  const box=$("notificationsList");
-  if(!box)return;
-  const sorted=[...notifications].sort((a,b)=>{
-    const au=!a.read_at, bu=!b.read_at;
-    if(au!==bu)return au?-1:1;
-    return new Date(b.created_at)-new Date(a.created_at);
-  });
-  const unread=sorted.filter(x=>!x.read_at).length;
-  $("notificationsSummary").textContent=unread?`${num(unread)} اعلان خوانده نشده`:"همه اعلان‌ها خوانده شده‌اند";
-  box.innerHTML=sorted.length?sorted.map(n=>`
-    <div class="notificationItem ${n.read_at?'read':'unread'}">
-      <div class="notificationMain">
-        <strong>${n.read_at?'':'🔴 '}${esc(n.title)}</strong>
-        <small>${notificationDate(n.created_at)}</small>
-        <p>${esc(n.content||"")}</p>
-      </div>
-      <div class="actions notificationActions">
-        <button class="ghost small" data-not-read="${esc(n.id)}">${n.read_at?"خوانده شد":"خواندم"}</button>
-        <button class="danger small" data-not-del="${esc(n.id)}">حذف</button>
-      </div>
-    </div>`).join(""):'<div class="empty">اعلانی وجود ندارد.</div>';
-
-  box.querySelectorAll("[data-not-read]").forEach(b=>b.onclick=async()=>{
-    const id=b.dataset.notRead,n=notifications.find(x=>x.id===id);
-    if(!n||n.read_at)return;
-    const r=await db.from("notifications").update({read_at:new Date().toISOString()}).eq("id",id);
-    if(!r.error)await loadNotifications();
-  });
-  box.querySelectorAll("[data-not-del]").forEach(b=>b.onclick=async()=>{
-    const r=await db.from("notifications").delete().eq("id",b.dataset.notDel);
-    if(!r.error)await loadNotifications();
-  });
-  updateNotificationBadge();
-}
-renderNotifications=renderNotificationsV671;
-renderNotifications();
+.monthlyTableWrap{max-height:620px;overflow:auto}.monthlySalesTable th:first-child,.monthlySalesTable td:first-child{width:72px;text-align:center}.monthlySalesTable td:last-child,.monthlySalesTable th:last-child{text-align:left;direction:ltr}.monthlySalesTable tr:nth-child(even) td{background:rgba(255,255,255,.035)}
