@@ -658,3 +658,51 @@ function renderNotificationsV671(){
 }
 renderNotifications=renderNotificationsV671;
 renderNotifications();
+/* ===== v6.8.5 stability + fast refresh ===== */
+const V685_CACHE_KEY="sabad-man-products-cache-v685";
+function v685PaintData(ps,cs){products=Array.isArray(ps)?ps:[];categories=Array.isArray(cs)&&cs.length?cs:fallbackCats;products=v68ProductOrder(products);renderCategories();renderProductManager();renderCategoryManager();if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));}
+async function v685FastLoad(){if(loading)return;loading=true;let cacheUsed=false;try{const raw=localStorage.getItem(V685_CACHE_KEY);if(raw){const c=JSON.parse(raw);if(Array.isArray(c.products)&&Array.isArray(c.categories)){v685PaintData(c.products,c.categories);cacheUsed=true;setStatus("در حال به‌روزرسانی…")}}}catch(e){}try{const [pr,cr]=await Promise.all([db.from("products").select("id,name,image_url,unit_price,purchase_price,quantity,min_quantity,created_at,updated_at,category_id,sort_order").order("sort_order",{ascending:true,nullsFirst:false}),db.from("categories").select("id,code,name,image_url,sort_order,created_at,updated_at").order("sort_order",{ascending:true})]);if(pr.error)throw pr.error;if(cr.error)throw cr.error;v685PaintData(pr.data||[],cr.data?.length?cr.data:fallbackCats);try{localStorage.setItem(V685_CACHE_KEY,JSON.stringify({products,categories,savedAt:Date.now()}))}catch(e){}await loadToday();setStatus("آماده است ✅")}catch(e){if(!cacheUsed)setStatus("خطا در خواندن اطلاعات: "+(e?.message||e),true);else setStatus("اطلاعات قبلی نمایش داده شد؛ همگام‌سازی ناموفق بود.",true)}finally{loading=false}}
+load=v685FastLoad;
+const v685LoginButton=$("loginButton"),v685Password=$("password");
+async function v685CheckSupabase(){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),8000);
+  try{
+    const r=await fetch(SUPABASE_URL+"/auth/v1/health",{method:"GET",headers:{apikey:SUPABASE_ANON_KEY},cache:"no-store",signal:controller.signal});
+    return {ok:r.ok,status:r.status};
+  }catch(e){return {ok:false,error:e};}
+  finally{clearTimeout(timer)}
+}
+async function v685Login(){
+  const email=$("email").value.trim(),password=$("password").value,status=$("loginStatus"),btn=$("loginButton");
+  if(!email||!password){status.textContent="ایمیل و رمز عبور را وارد کنید.";return}
+  btn.disabled=true;status.textContent="در حال بررسی اتصال…";
+  try{
+    const health=await v685CheckSupabase();
+    if(!health.ok){
+      status.textContent="اتصال به Supabase برقرار نشد. اینترنت، VPN/فایروال یا آدرس پروژه Supabase را بررسی کنید.";
+      console.error("Supabase health check failed",health);
+      return;
+    }
+    status.textContent="در حال ورود…";
+    const r=await db.auth.signInWithPassword({email,password});
+    if(r.error){status.textContent=r.error.message||"ایمیل یا رمز عبور صحیح نیست.";return}
+    if(!r.data?.session){status.textContent="ورود انجام شد ولی نشست کاربری دریافت نشد. دوباره تلاش کنید.";return}
+    status.textContent="ورود موفق بود…";
+    show();
+    await boot();
+  }catch(err){
+    console.error("Login error",err);
+    const msg=String(err?.message||err||"");
+    status.textContent=/fetch|network|failed to fetch/i.test(msg)
+      ? "ارتباط با سرور ورود برقرار نشد. اینترنت، VPN/فایروال و دسترسی به Supabase را بررسی کنید."
+      : (msg||"خطایی هنگام ورود رخ داد.");
+  }finally{btn.disabled=false}
+}
+if(v685LoginButton)v685LoginButton.onclick=v685Login;
+if(v685Password)v685Password.onkeydown=e=>{if(e.key==="Enter")v685Login()};
+db.auth.onAuthStateChange((event,session)=>{
+  if(event==="SIGNED_OUT"){$("appView")?.classList.add("hidden");$("loginView")?.classList.remove("hidden")}
+  if((event==="SIGNED_IN"||event==="TOKEN_REFRESHED")&&session){$("loginView")?.classList.add("hidden");$("appView")?.classList.remove("hidden")}
+});
+let v685RealtimeTimer=null;function v685RealtimeReload(){clearTimeout(v685RealtimeTimer);v685RealtimeTimer=setTimeout(()=>load(),180)}try{db.channel("sabadman-fast-sync").on("postgres_changes",{event:"*",schema:"public",table:"products"},v685RealtimeReload).on("postgres_changes",{event:"*",schema:"public",table:"categories"},v685RealtimeReload).subscribe()}catch(e){console.warn(e)}
