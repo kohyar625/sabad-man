@@ -658,6 +658,19 @@ function renderNotificationsV671(){
 }
 renderNotifications=renderNotificationsV671;
 renderNotifications();
+/* ===== v6.8.5 product ordering fix ===== */
+function v68ProductOrder(list){
+  const arr = Array.isArray(list) ? [...list] : [];
+  return arr.sort((a,b)=>{
+    const sa = (a.sort_order === null || a.sort_order === undefined || a.sort_order === "")
+      ? Number.MAX_SAFE_INTEGER : Number(a.sort_order);
+    const sb = (b.sort_order === null || b.sort_order === undefined || b.sort_order === "")
+      ? Number.MAX_SAFE_INTEGER : Number(b.sort_order);
+    if(sa !== sb) return sa - sb;
+    return String(a.name || "").localeCompare(String(b.name || ""), "fa");
+  });
+}
+
 /* ===== v6.8.5 stability + fast refresh ===== */
 const V685_CACHE_KEY="sabad-man-products-cache-v685";
 function v685PaintData(ps,cs){products=Array.isArray(ps)?ps:[];categories=Array.isArray(cs)&&cs.length?cs:fallbackCats;products=v68ProductOrder(products);renderCategories();renderProductManager();renderCategoryManager();if(current)renderProducts(products.filter(x=>String(x.category_id)===String(current.id)||x.category===current.code));}
